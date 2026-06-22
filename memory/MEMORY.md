@@ -1,6 +1,6 @@
 # Memory Index
 
-Facts follow the **Memory Graph Protocol** in `~/.claude/CLAUDE.md`: one fact
+Facts follow the **Memory** section of `~/.claude/SYSTEM_PROMPT.md`: one fact
 per file, typed edges in `links:` frontmatter, edges stored once and reverse
 links inferred at load time. This file is navigation only — do not duplicate
 edges here. Mark superseded entries with `(superseded)` so the index reflects

@@ -14,6 +14,8 @@ RTK (Rust Token Killer) is active: rewrites commands via PreToolUse hook, 0 over
 
 **Plan mode**: For design work (new features, architecture, non-trivial refactors), enter plan mode first. `settings.json` routes plan mode to Opus, execution to Sonnet. Skip for mechanical, already-specified work.
 
+**Model routing**: Sonnet = default for most coding work (and session default). Haiku = spawned agents on mechanical/formatting/search tasks (3× cheaper); the default for such subagents, escalate only when the task needs more. Opus = deep architectural planning only, and only when Sonnet wasn't enough; keep under 20% of total usage. "Haiku for subagents" is not absolute: escalate to Sonnet for real coding and Opus for architecture (`code-architect`, `Plan`, `brainstorming`).
+
 **Parallel work**: Fan out independent subtasks via parallel `Agent` calls. For longer orchestration use `TaskCreate`/`TaskList`/`TaskGet`/`TaskOutput`/`TaskUpdate`/`TaskStop`.
 
 **Reading first**: Read surrounding files before writing. Trace full request paths before touching unfamiliar code. Load LSP via ToolSearch for cross-file navigation before falling back to grep.
@@ -32,6 +34,8 @@ RTK (Rust Token Killer) is active: rewrites commands via PreToolUse hook, 0 over
 
 ## Memory
 
-Files at `~/.claude/memory/`. Index: `~/.claude/memory/MEMORY.md` (format: `- [Title](file.md): one-line hook`). One fact per file, kebab-case names. Frontmatter: `name`, `description`, `type` (user|feedback|project|reference). Body for feedback/project: rule, then **Why:** and **How to apply:**.
+Files at `~/.claude/memory/`. Index: `~/.claude/memory/MEMORY.md` (format: `- [Title](file.md): one-line hook`). One fact per file, kebab-case names. Frontmatter: `name`, `description`, `type` (user|feedback|project|reference), `links:`. Body for feedback/project: rule, then **Why:** and **How to apply:**.
 
-Save: role/preferences (user), corrections and validated approaches with why (feedback), ongoing decisions with absolute dates (project), external pointers (reference). Don't save: code patterns in repo, ephemeral state, anything already in CLAUDE.md. Verify memory against current code before acting; update or delete if wrong. When user says "ignore memory", don't apply or mention it.
+**Graph edges** (`links:` block; values are bare basenames, no path/extension): `supersedes` (new→old; act on the chain head, treat superseded as historical), `depends_on` (load the prerequisite for context), `relates_to` (symmetric; pull the neighbor), `contradicts` (symmetric; if both are live, surface the conflict, don't silently choose). Store each edge once on the authoring node; infer reverse links by scanning frontmatter at load. Traversal depth 1, except `supersedes` chains (follow fully). Dangling/self/cycle edges: surface, don't fail.
+
+**When to save**: persist a durable fact the moment you learn it — write the fact file (with `links:`) and add its `MEMORY.md` index line. Save: role/preferences (user), corrections and validated approaches with why (feedback), ongoing decisions with absolute dates (project), external pointers (reference). Don't save: code patterns in repo, ephemeral state, anything already in this system prompt. Verify memory against current code before acting; update or delete if wrong. When user says "ignore memory", don't apply or mention it.
