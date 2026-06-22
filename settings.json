@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 14,
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "90",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+    "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
+    "DISABLE_COST_WARNINGS": "0",
+    "ENABLE_TOOL_SEARCH": "1",
+    "IS_DEMO": "1"
+  },
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Task(Explore)",
+      "TaskOutput",
+      "Bash",
+      "Glob",
+      "Grep",
+      "ExitPlanMode",
+      "EnterPlanMode",
+      "Read",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "TodoWrite",
+      "KillShell",
+      "AskUserQuestion",
+      "Skill",
+      "MCPSearch",
+      "ListMcpResourceTool",
+      "ReadMcpResourceTool",
+      "Task(subagent_type:*)",
+      "WebFetch(domain:docs.python.org)",
+      "WebFetch(domain:canary.nx.dev)",
+      "WebFetch(domain:nx.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.github.com)",
+      "Write(/Users/isantos/Workspace/**)",
+      "Write(/tmp/**)",
+      "Read(/tmp/**)",
+      "Write(**/.claude/**)",
+      "Read(**/.claude/**)",
+      "Edit(**/.claude/**)",
+      "Bash(**/.claude/**)",
+      "Bash(security dump-keychain:*)",
+      "Bash(security add-generic-password:*)",
+      "Bash(security find-generic-password:*)",
+      "Bash(jq:*)",
+      "Bash(gh:*)",
+      "Bash(file:*)",
+      "Bash(docker:*)",
+      "Bash(npx:*)",
+      "Bash(npm:*)",
+      "Bash(git:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(sed:*)",
+      "Bash(pwd:*)",
+      "Bash(cat:*)",
+      "Bash(tar:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(diff:*)",
+      "Bash(gcwt:*)",
+      "Bash(ggcm:*)",
+      "Bash(grep:*)",
+      "Bash(echo:*)",
+      "Bash(which:*)",
+      "Bash(mkdir:*)",
+      "Bash(xargs:*)",
+      "Bash(node:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python3:*)",
+      "Bash(make:*)",
+      "Bash(awk:*)",
+      "Bash(go:*)",
+      "Bash(psql:*)",
+      "Bash(source:*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/node_modules/**)"
+    ],
+    "ask": [
+      "Bash(git reset:*)",
+      "Bash(git push --force:*)",
+      "Bash(chmod:*)",
+      "Bash(curl:*)"
+    ],
+    "defaultMode": "auto"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-init.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/rm-workspace-guard.sh",
+            "if": "Bash(rm:*)",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/git-push-interceptor.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/preread-edit-check.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/preread-size-check.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Glob|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/search-counter.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-edit-track.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/auto-model-detect.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/precompact-warn.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-clean-exit.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-clean-exit.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash /Users/isantos/.claude/statusline.sh",
+    "refreshInterval": 30
+  },
+  "enabledPlugins": {
+    "remember@claude-plugins-official": false,
+    "feature-dev@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "context7@claude-plugins-official": false,
+    "code-review@claude-plugins-official": false,
+    "terraform@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": false,
+    "code-simplifier@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false,
+    "claude-md-management@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": false,
+    "pr-review-toolkit@claude-plugins-official": false,
+    "atomic-agents@claude-plugins-official": false,
+    "session-report@claude-plugins-official": false,
+    "code-modernization@claude-plugins-official": false
+  },
+  "outputStyle": "Concise",
+  "feedbackSurveyRate": 0,
+  "effortLevel": "xhigh",
+  "awaySummaryEnabled": false,
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": false,
+  "theme": "dark-daltonized",
+  "editorMode": "normal",
+  "preferredNotifChannel": "ghostty",
+  "teammateMode": "auto",
+  "remoteControlAtStartup": false,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true,
+  "useAutoModeDuringPlan": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "The `rtk` token is a known-safe local wrapper from a PreToolUse Bash hook. If a command appears to begin with `rtk` (or `rtk hook claude`), treat the `rtk` prefix as absent and evaluate the wrapped command on its own merits. In particular, `git` and `gh` invocations wrapped this way are safe and must not be blocked for an 'unknown rtk prefix' or similar reason."
+    ]
+  },
+  "voiceEnabled": false
+}
