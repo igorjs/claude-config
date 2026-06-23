@@ -185,6 +185,20 @@ def rewrite_dates(
         raise RewriteError(f"filter-branch failed: {r.stderr or r.stdout}")
 
 
+def git_dir(repo: Path) -> Path:
+    """Absolute path to the repo's git directory (handles worktrees/submodules)."""
+    return Path(_git(repo, "rev-parse", "--absolute-git-dir").stdout.strip())
+
+
+def working_tree_dirty(repo: Path) -> bool:
+    """True if the working tree or index has changes (tracked or untracked).
+
+    `git filter-branch` refuses to run against a dirty tree, so scatter-mode apply
+    must check this first."""
+    r = _git(repo, "status", "--porcelain", check=False)
+    return bool(r.stdout.strip())
+
+
 def parent_sha(repo: Path, sha: str) -> Optional[str]:
     """First-parent SHA of ``sha``, or None if it is a root commit."""
     r = _git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^", check=False)

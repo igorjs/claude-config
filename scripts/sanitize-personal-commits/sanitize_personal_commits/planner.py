@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from random import Random
@@ -35,6 +36,18 @@ class Commit:
 
 def _min_gap(lines_changed: int) -> float:
     return min(MIN_GAP_BASE + lines_changed * MIN_GAP_PER_LINE, MIN_GAP_CAP)
+
+
+def seed_from_commits(commits: List[Commit]) -> int:
+    """A deterministic RNG seed derived from the commit SHAs (order-sensitive).
+
+    Seeding placement from repo content makes the plan reproducible — a dry-run
+    preview matches the real apply — while still scattering timestamps naturally."""
+    h = hashlib.sha256()
+    for c in commits:
+        h.update(c.sha.encode())
+        h.update(b"\x00")
+    return int.from_bytes(h.digest()[:8], "big")
 
 
 def _place_backward(

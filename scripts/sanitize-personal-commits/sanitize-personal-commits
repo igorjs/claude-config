@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
 """sanitize-personal-commits: rewrite business-hours commit timestamps before pushing.
 
-By default, scans the history for the earliest commit in a forbidden window and
-rewrites from there to HEAD, whether or not those commits were already pushed
-(force-pushing with lease when they were). Only acts when every commit in the
-rewrite range is the local author's. Backs up the original HEAD to a branch
-first.
+Two stages:
 
-Usage: sanitize-personal-commits [--dry-run] [--all] [--squash] [git push args...]
+  analyse   compute exactly what would change (the business-hours commits and the
+            planned fix), print a summary, and persist the plan. Changes nothing.
+  apply     execute the persisted plan verbatim (back up HEAD, rewrite or squash,
+            then push). Refuses if HEAD moved since the plan was analysed.
 
-  --dry-run   show the planned rewrites and push, change nothing
-  --all       rewrite the entire history (root..HEAD), re-signing every commit,
-              instead of only from the first violation
-  --squash    collapse each run of business-hours commits into a single commit
-              dated after 17:00 (folding into the next same-day after-17:00 commit
-              when one exists), instead of scattering their timestamps
+The split makes the result deterministic: apply does exactly what analyse showed
+and the user approved. Placement is seeded from the commit SHAs, so the preview is
+reproducible.
+
+Usage:
+  sanitize-personal-commits analyse [--all] [--squash] [--rewrite-only] [git push args...]
+  sanitize-personal-commits apply
+  sanitize-personal-commits [--dry-run] [--all] [--squash] [git push args...]   (legacy)
+
+  --all          rewrite the entire history (root..HEAD), re-signing every commit,
+                 instead of only from the first violation
+  --squash       collapse each run of business-hours commits into a single commit
+                 dated after 17:00 (folding into the next same-day after-17:00
+                 commit when one exists), instead of scattering their timestamps
+  --rewrite-only rewrite/squash but do not push
+  --dry-run      legacy: run analyse without persisting a plan or applying
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -37,26 +47,42 @@ from sanitize_personal_commits.git_ops import (  # noqa: E402
     create_backup_branch,
     diff_shortstat,
     get_local_email,
+    git_dir,
     is_pushed,
     list_all_commits,
     parent_sha,
     rewrite_dates,
     squash_rebuild,
+    working_tree_dirty,
 )
 from sanitize_personal_commits.lock import repo_lock  # noqa: E402
 from sanitize_personal_commits.logger import log_rewrite  # noqa: E402
+from sanitize_personal_commits.plan import (  # noqa: E402
+    Plan,
+    clear_plan,
+    read_plan,
+    write_plan,
+)
 from sanitize_personal_commits.planner import (  # noqa: E402
+    SquashGroup,
     SquashNoSlotError,
     plan_rewrites,
     plan_squash,
+    seed_from_commits,
 )
 from sanitize_personal_commits.squash import build_message  # noqa: E402
 from sanitize_personal_commits.windows import (  # noqa: E402
+    SYDNEY,
     in_soft_buffer,
     is_forbidden,
 )
 
-LOG_FILE = Path.home() / ".claude" / "logs" / "sanitize-personal-commits.log"
+LOG_FILE = Path(
+    os.environ.get(
+        "SANITIZE_PERSONAL_COMMITS_LOG",
+        str(Path.home() / ".claude" / "logs" / "sanitize-personal-commits.log"),
+    )
+)
 LOCKS_DIR = Path.home() / ".claude" / "locks"
 
 
@@ -75,21 +101,36 @@ def lock_path_for(repo: Path) -> Path:
     return LOCKS_DIR / f"{h}.lock"
 
 
+def _head_sha(repo: Path) -> str:
+    r = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True,
+    )
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _current_branch(repo: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), "branch", "--show-current"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+
 def main() -> int:
+    argv = sys.argv[1:]
+    sub = None
+    if argv and argv[0] in ("analyse", "analyze"):
+        sub, argv = "analyse", argv[1:]
+    elif argv and argv[0] == "apply":
+        sub, argv = "apply", argv[1:]
+
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--all", action="store_true", dest="all_history",
-                        help="Rewrite the entire history (root..HEAD), re-signing "
-                             "every commit, instead of only from the first violation.")
-    parser.add_argument("--rewrite-only", action="store_true",
-                        help="Rewrite timestamps but do not push.")
-    parser.add_argument("--squash", action="store_true",
-                        help="Collapse each run of business-hours commits into a "
-                             "single commit dated after 17:00 (folding into the next "
-                             "same-day after-17:00 commit when one exists), instead "
-                             "of scattering their timestamps.")
+    parser.add_argument("--all", action="store_true", dest="all_history")
+    parser.add_argument("--rewrite-only", action="store_true")
+    parser.add_argument("--squash", action="store_true")
     parser.add_argument("-h", "--help", action="store_true", dest="help_flag")
-    args, push_args = parser.parse_known_args()
+    args, push_args = parser.parse_known_args(argv)
 
     if args.help_flag:
         print(__doc__)
@@ -98,14 +139,38 @@ def main() -> int:
     repo = repo_root()
     try:
         with repo_lock(lock_path_for(repo)):
-            return _run(repo, args.dry_run, args.rewrite_only, args.all_history,
-                        args.squash, push_args)
+            if sub == "apply":
+                return _cmd_apply(repo)
+            if sub == "analyse":
+                return _cmd_analyse(
+                    repo, all_history=args.all_history, squash=args.squash,
+                    rewrite_only=args.rewrite_only, push_args=push_args,
+                    persist=True, label="ANALYSIS",
+                )
+            # Legacy single-invocation interface.
+            if args.dry_run:
+                return _cmd_analyse(
+                    repo, all_history=args.all_history, squash=args.squash,
+                    rewrite_only=args.rewrite_only, push_args=push_args,
+                    persist=False, label="DRY RUN",
+                )
+            rc = _cmd_analyse(
+                repo, all_history=args.all_history, squash=args.squash,
+                rewrite_only=args.rewrite_only, push_args=push_args,
+                persist=True, label="ANALYSIS",
+            )
+            if rc != 0:
+                return rc
+            return _cmd_apply(repo)
     except BlockingIOError:
         print(
             "sanitize-personal-commits: another instance is running for this repo",
             file=sys.stderr,
         )
         return 3
+
+
+# --- analyse ---------------------------------------------------------------
 
 
 def _warn_soft_buffer(commits: list, final_by_sha: dict | None = None) -> None:
@@ -125,265 +190,359 @@ def _warn_soft_buffer(commits: list, final_by_sha: dict | None = None) -> None:
             )
 
 
-def _do_push(repo: Path, push_args: list, dry_run: bool, force: bool) -> int:
-    args = (["--force-with-lease"] if force else []) + list(push_args)
-    if dry_run:
-        print(f"sanitize-personal-commits: DRY RUN — would run: git push {' '.join(args)}")
-        return 0
-    r = subprocess.run(["git", "-C", str(repo), "push", *args])
-    return r.returncode
-
-
-def _run(repo: Path, dry_run: bool, rewrite_only: bool, all_history: bool,
-         squash: bool, push_args: list) -> int:
+def _build_plan(repo: Path, *, all_history: bool, squash: bool, rewrite_only: bool,
+                push_args: list, generate_messages: bool):
+    """Compute the plan. Returns (plan, exit_code, error_message). On success
+    exit_code is 0 and error_message is None; on failure plan is None."""
     local_email = get_local_email(repo)
     commits = list_all_commits(repo, local_email=local_email)
+    head = _head_sha(repo)
+    branch = _current_branch(repo)
+
+    def noop():
+        return Plan(
+            mode="noop", head=head, branch=branch, range_expr="", is_root=False,
+            force=False, signing_ok=True, backup_name="", push_args=list(push_args),
+            rewrite_only=rewrite_only,
+        )
 
     if not commits:
-        if rewrite_only:
-            return 0
-        return _do_push(repo, push_args, dry_run, force=False)
+        return noop(), 0, None
 
-    # Earliest own (non-merge, non-foreign) commit in a forbidden window.
     first_idx = next(
         (
-            i
-            for i, c in enumerate(commits)
+            i for i, c in enumerate(commits)
             if not c.is_merge and not c.is_foreign and is_forbidden(c.committer_date)
         ),
         None,
     )
     if first_idx is None:
-        # No hard violation to rewrite, but still flag any unpushed commits that
-        # touch the tolerated buffer before they go out.
         _warn_soft_buffer([c for c in commits if not is_pushed(repo, c.sha)])
-        if rewrite_only:
-            return 0
-        return _do_push(repo, push_args, dry_run, force=False)
+        return noop(), 0, None
 
-    # Default: rewrite from the first violation onward. --all: from the root.
     start_idx = 0 if all_history else first_idx
     range_commits = commits[start_idx:]
     start_sha = commits[start_idx].sha
     is_root = start_idx == 0
 
-    # Only sanitize history that is solely the local author's. A foreign commit
-    # inside the rewrite range would mean force-pushing someone else's work.
     foreign = [c for c in range_commits if c.is_foreign]
     if foreign:
-        print(
-            f"sanitize-personal-commits: refusing — {len(foreign)} commit(s) by other "
-            "authors fall inside the rewrite range; sanitizing would force-push history "
-            "that isn't solely yours",
-            file=sys.stderr,
+        return None, 7, (
+            f"refusing — {len(foreign)} commit(s) by other authors fall inside the "
+            "rewrite range; sanitizing would force-push history that isn't solely yours"
         )
-        return 7
 
+    signing_ok = True
     try:
         check_signing_configured(repo)
     except SigningNotConfiguredError as e:
-        if dry_run:
-            print(
-                f"sanitize-personal-commits: WARNING — signing not configured: {e} "
-                "(would abort if not --dry-run)",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"sanitize-personal-commits: refusing to rewrite — signing not configured: {e}",
-                file=sys.stderr,
-            )
-            return 4
+        signing_ok = False
+        print(
+            f"sanitize-personal-commits: WARNING — signing not configured: {e} "
+            "(apply will refuse)",
+            file=sys.stderr,
+        )
 
     now = datetime.now().astimezone()
     force = is_pushed(repo, start_sha)
     range_expr = "HEAD" if is_root else f"{start_sha}^..HEAD"
-    branch = (
-        subprocess.run(
-            ["git", "-C", str(repo), "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+    backup_name = f"backup/pre-sanitize-{now.strftime('%Y%m%d-%H%M%S')}"
+    seed = seed_from_commits(range_commits)
+    violations = [
+        [c.sha, c.committer_date.isoformat(), commit_subject(repo, c.sha)]
+        for c in range_commits
+        if not c.is_merge and not c.is_foreign and is_forbidden(c.committer_date)
+    ]
+    common = dict(
+        head=head, branch=branch, range_expr=range_expr, is_root=is_root,
+        force=force, signing_ok=signing_ok, backup_name=backup_name,
+        start_sha=start_sha, rewrite_only=rewrite_only, push_args=list(push_args),
+        violations=violations,
     )
-    stamp = now.strftime("%Y%m%d-%H%M%S")
-    backup_name = f"backup/pre-sanitize-{stamp}"
 
     if squash:
-        return _run_squash(
-            repo,
-            range_commits=range_commits,
-            now=now,
-            dry_run=dry_run,
-            rewrite_only=rewrite_only,
-            force=force,
-            range_expr=range_expr,
-            backup_name=backup_name,
-            push_args=push_args,
-        )
-
-    try:
-        rewrites = plan_rewrites(range_commits, now=now)
-    except RuntimeError as e:
-        print(f"sanitize-personal-commits: cannot plan rewrites: {e}", file=sys.stderr)
-        return 5
-
-    orig_by_sha = {c.sha: c for c in range_commits}
-    for sha, new_dt in rewrites:
-        c = orig_by_sha[sha]
-        log_rewrite(
-            LOG_FILE,
-            repo=str(repo),
-            branch=branch,
-            commit=sha,
-            original=c.committer_date,
-            new=new_dt,
-            reason="business-hours rewrite",
-            min_gap_used=0,
-        )
-
-    _warn_soft_buffer(range_commits, dict(rewrites))
-
-    if dry_run:
-        print("sanitize-personal-commits: DRY RUN — planned rewrites:")
-        for sha, new_dt in rewrites:
-            c = orig_by_sha[sha]
-            print(
-                f"  {sha[:10]}  {c.committer_date.isoformat()}  ->  {new_dt.isoformat()}"
+        merges = [c for c in range_commits if c.is_merge]
+        if merges:
+            return None, 7, (
+                f"refusing — --squash cannot rebuild {len(merges)} merge commit(s) "
+                "inside the range"
             )
-        print(
-            f"sanitize-personal-commits: DRY RUN — would back up HEAD to {backup_name}, "
-            f"rewrite {range_expr}, then "
-            f"git push {'--force-with-lease ' if force else ''}{' '.join(push_args)}".rstrip()
-        )
-        return 0
+        try:
+            groups = plan_squash(range_commits, now=now, rng_seed=seed)
+        except SquashNoSlotError as e:
+            return None, 8, (
+                f"cannot squash — {e}; re-run after 17:00 so an after-hours slot exists"
+            )
+        squash_list, messages = [], {}
+        for g in groups:
+            rep = g.target_sha if g.target_sha is not None else g.run_shas[-1]
+            squash_list.append({
+                "run_shas": list(g.run_shas),
+                "target_sha": g.target_sha,
+                "new_date": g.new_date.isoformat() if g.new_date else None,
+            })
+            if generate_messages:
+                base = parent_sha(repo, g.run_shas[0])
+                combined = list(g.run_shas) + ([g.target_sha] if g.target_sha else [])
+                messages[rep] = build_message(
+                    subjects=[commit_subject(repo, s) for s in combined],
+                    shortstat=diff_shortstat(repo, base, rep),
+                    fallback=commit_message(repo, rep),
+                )
+        return Plan(mode="squash", squash=squash_list, messages=messages, **common), 0, None
 
     try:
-        create_backup_branch(repo, backup_name)
+        rewrites = plan_rewrites(range_commits, now=now, rng_seed=seed)
+    except RuntimeError as e:
+        return None, 5, f"cannot plan rewrites: {e}"
+    rew_list = [[sha, dt.isoformat()] for sha, dt in rewrites]
+    return Plan(mode="scatter", rewrites=rew_list, **common), 0, None
+
+
+def _print_summary(plan: Plan, label: str) -> None:
+    if plan.mode == "noop":
+        pushline = "git push " + " ".join(
+            (["--force-with-lease"] if plan.force else []) + list(plan.push_args)
+        )
+        print(
+            f"sanitize-personal-commits: {label} — no business-hours commits; "
+            f"would run: {pushline.rstrip()}"
+        )
+        return
+
+    def _fmt(iso):
+        return datetime.fromisoformat(iso).astimezone(SYDNEY).strftime("%a %Y-%m-%d %H:%M")
+
+    if plan.mode == "scatter":
+        # One row per violation: original time -> planned time, with the subject.
+        new_by_sha = {sha: iso for sha, iso in plan.rewrites}
+        print(
+            f"sanitize-personal-commits: {label} — {len(plan.violations)} "
+            "business-hours commit(s); planned rewrite:"
+        )
+        viol_shas = set()
+        for sha, iso, subject in plan.violations:
+            viol_shas.add(sha)
+            new_iso = new_by_sha.get(sha)
+            new = _fmt(new_iso) if new_iso else "(unchanged)"
+            print(f"  {sha[:10]}  {_fmt(iso)}  ->  {new}  {subject}")
+        extra = [s for s, _ in plan.rewrites if s not in viol_shas]
+        if extra:
+            print(f"  (+{len(extra)} adjacent commit(s) shifted to preserve order)")
+        verb = "rewrite"
+    else:
+        print(
+            f"sanitize-personal-commits: {label} — {len(plan.violations)} "
+            "business-hours commit(s) in range:"
+        )
+        for sha, iso, subject in plan.violations:
+            print(f"  {sha[:10]}  {_fmt(iso)}  {subject}")
+        print(f"sanitize-personal-commits: {label} — planned squash:")
+        for g in plan.squash:
+            shas = ", ".join(s[:10] for s in g["run_shas"])
+            if g["target_sha"] is not None:
+                print(
+                    f"  fold {len(g['run_shas'])} commit(s) [{shas}] into "
+                    f"{g['target_sha'][:10]} (keeps its date)"
+                )
+                rep = g["target_sha"]
+            else:
+                print(
+                    f"  squash {len(g['run_shas'])} commit(s) [{shas}] into a new "
+                    f"commit at {g['new_date']}"
+                )
+                rep = g["run_shas"][-1]
+            msg = plan.messages.get(rep)
+            if msg:
+                print(f"    message: {msg.splitlines()[0]}")
+            else:
+                print("    message: (generated when applied)")
+        verb = "rebuild"
+
+    pushline = "git push " + " ".join(
+        (["--force-with-lease"] if plan.force else []) + list(plan.push_args)
+    )
+    print(
+        f"sanitize-personal-commits: {label} — would back up HEAD to {plan.backup_name}, "
+        f"{verb} {plan.range_expr}, then {pushline}".rstrip()
+    )
+
+
+def _cmd_analyse(repo: Path, *, all_history: bool, squash: bool, rewrite_only: bool,
+                 push_args: list, persist: bool, label: str) -> int:
+    plan, code, err = _build_plan(
+        repo, all_history=all_history, squash=squash, rewrite_only=rewrite_only,
+        push_args=push_args, generate_messages=persist,
+    )
+    if plan is None:
+        print(f"sanitize-personal-commits: {err}", file=sys.stderr)
+        return code
+    if plan.mode != "noop":
+        _warn_soft_buffer_for_plan(plan)
+    _print_summary(plan, label)
+    if persist:
+        write_plan(git_dir(repo), plan)
+    return 0
+
+
+def _warn_soft_buffer_for_plan(plan: Plan) -> None:
+    """Flag any planned timestamp that lands in the tolerated buffer."""
+    finals = []
+    if plan.mode == "scatter":
+        finals = [iso for _, iso in plan.rewrites]
+    elif plan.mode == "squash":
+        finals = [g["new_date"] for g in plan.squash if g["new_date"]]
+    for iso in finals:
+        dt = datetime.fromisoformat(iso)
+        if in_soft_buffer(dt):
+            print(
+                f"sanitize-personal-commits: WARNING — a planned timestamp "
+                f"({dt.isoformat()}) lands in the soft buffer; tolerated (DST slack) "
+                "but not fully outside business hours",
+                file=sys.stderr,
+            )
+
+
+# --- apply -----------------------------------------------------------------
+
+
+def _do_push(repo: Path, push_args: list, force: bool) -> int:
+    args = (["--force-with-lease"] if force else []) + list(push_args)
+    r = subprocess.run(["git", "-C", str(repo), "push", *args])
+    return r.returncode
+
+
+def _cmd_apply(repo: Path) -> int:
+    gd = git_dir(repo)
+    plan = read_plan(gd)
+    if plan is None:
+        print(
+            "sanitize-personal-commits: no analysed plan found; run "
+            "'sanitize-personal-commits analyse' first",
+            file=sys.stderr,
+        )
+        return 9
+    if plan.head != _head_sha(repo):
+        print(
+            "sanitize-personal-commits: plan is stale — HEAD moved since it was "
+            "analysed; re-run 'sanitize-personal-commits analyse'",
+            file=sys.stderr,
+        )
+        return 9
+
+    if plan.mode == "noop":
+        clear_plan(gd)
+        if plan.rewrite_only:
+            return 0
+        return _do_push(repo, plan.push_args, force=plan.force)
+
+    try:
+        check_signing_configured(repo)
+    except SigningNotConfiguredError as e:
+        print(
+            f"sanitize-personal-commits: refusing to apply — signing not configured: {e}",
+            file=sys.stderr,
+        )
+        return 4
+
+    commits = list_all_commits(repo, local_email=get_local_email(repo))
+    idx = next((i for i, c in enumerate(commits) if c.sha == plan.start_sha), None)
+    if idx is None:
+        print(
+            "sanitize-personal-commits: plan is stale — range start no longer present; "
+            "re-run analyse",
+            file=sys.stderr,
+        )
+        return 9
+    range_commits = commits[idx:]
+
+    if plan.mode == "scatter":
+        rc = _apply_scatter(repo, plan, range_commits)
+    else:
+        rc = _apply_squash(repo, plan, range_commits)
+    if rc != 0:
+        return rc
+
+    clear_plan(gd)
+    if plan.rewrite_only:
+        return 0
+    return _do_push(repo, plan.push_args, force=plan.force)
+
+
+def _apply_scatter(repo: Path, plan: Plan, range_commits: list) -> int:
+    if working_tree_dirty(repo):
+        print(
+            "sanitize-personal-commits: refusing to apply — the working tree has "
+            "uncommitted changes (git filter-branch needs a clean tree). Stash or "
+            "commit them, or use --squash, then re-analyse.",
+            file=sys.stderr,
+        )
+        return 6
+
+    orig_by_sha = {c.sha: c.committer_date for c in range_commits}
+    rewrites = [(sha, datetime.fromisoformat(iso)) for sha, iso in plan.rewrites]
+    try:
+        create_backup_branch(repo, plan.backup_name)
     except RewriteError as e:
         print(f"sanitize-personal-commits: {e}", file=sys.stderr)
         return 6
-
     try:
-        rewrite_dates(repo, rewrites, sign=True, range_expr=range_expr)
+        rewrite_dates(repo, rewrites, sign=True, range_expr=plan.range_expr)
     except RewriteError as e:
         print(f"sanitize-personal-commits: rewrite failed: {e}", file=sys.stderr)
         return 6
 
+    for sha, new_dt in rewrites:
+        log_rewrite(
+            LOG_FILE, repo=str(repo), branch=plan.branch, commit=sha,
+            original=orig_by_sha.get(sha, new_dt), new=new_dt,
+            reason="business-hours rewrite", min_gap_used=0,
+        )
     print(
-        f"sanitize-personal-commits: rewrote {len(rewrites)} commit(s); "
-        f"original HEAD preserved on branch {backup_name}",
+        f"sanitize-personal-commits: rewrote {len(rewrites)} commit(s); original HEAD "
+        f"preserved on branch {plan.backup_name}",
         file=sys.stderr,
     )
-    # Machine-readable line so the slash command can offer to delete the backup.
-    print(f"BACKUP_BRANCH={backup_name}")
-
-    if rewrite_only:
-        return 0
-    return _do_push(repo, push_args, dry_run, force=force)
+    print(f"BACKUP_BRANCH={plan.backup_name}")
+    return 0
 
 
-def _run_squash(repo: Path, *, range_commits: list, now, dry_run: bool,
-                rewrite_only: bool, force: bool, range_expr: str,
-                backup_name: str, push_args: list) -> int:
-    # Merge commits cannot be rebuilt by the linear commit-tree walk; refuse rather
-    # than silently mangle them.
-    merges = [c for c in range_commits if c.is_merge]
-    if merges:
-        print(
-            f"sanitize-personal-commits: refusing — --squash cannot rebuild "
-            f"{len(merges)} merge commit(s) inside the range",
-            file=sys.stderr,
+def _apply_squash(repo: Path, plan: Plan, range_commits: list) -> int:
+    groups = [
+        SquashGroup(
+            run_shas=list(g["run_shas"]),
+            target_sha=g["target_sha"],
+            new_date=datetime.fromisoformat(g["new_date"]) if g["new_date"] else None,
         )
-        return 7
-
+        for g in plan.squash
+    ]
     try:
-        groups = plan_squash(range_commits, now=now)
-    except SquashNoSlotError as e:
-        print(
-            f"sanitize-personal-commits: cannot squash — {e}; "
-            "re-run after 17:00 so an after-hours slot exists",
-            file=sys.stderr,
-        )
-        return 8
-
-    if not groups:
-        if rewrite_only:
-            return 0
-        return _do_push(repo, push_args, dry_run, force=force)
-
-    def _rep(g):
-        return g.target_sha if g.target_sha is not None else g.run_shas[-1]
-
-    if dry_run:
-        print("sanitize-personal-commits: DRY RUN — planned squash:")
-        for g in groups:
-            shas = ", ".join(s[:10] for s in g.run_shas)
-            if g.target_sha is not None:
-                print(
-                    f"  fold {len(g.run_shas)} commit(s) [{shas}] into "
-                    f"{g.target_sha[:10]} (keeps its date)"
-                )
-            else:
-                print(
-                    f"  squash {len(g.run_shas)} commit(s) [{shas}] into a new "
-                    f"commit at {g.new_date.isoformat()}"
-                )
-        print(
-            f"sanitize-personal-commits: DRY RUN — would back up HEAD to {backup_name}, "
-            f"rebuild {range_expr}, then "
-            f"git push {'--force-with-lease ' if force else ''}{' '.join(push_args)}".rstrip()
-        )
-        return 0
-
-    # Build a non-revealing message per group (AI summary, real-message fallback).
-    messages = {}
-    for g in groups:
-        rep = _rep(g)
-        base = parent_sha(repo, g.run_shas[0])
-        combined = list(g.run_shas) + ([g.target_sha] if g.target_sha else [])
-        subjects = [commit_subject(repo, s) for s in combined]
-        messages[rep] = build_message(
-            subjects=subjects,
-            shortstat=diff_shortstat(repo, base, rep),
-            fallback=commit_message(repo, rep),
-        )
-
-    try:
-        create_backup_branch(repo, backup_name)
+        create_backup_branch(repo, plan.backup_name)
     except RewriteError as e:
         print(f"sanitize-personal-commits: {e}", file=sys.stderr)
         return 6
-
     try:
         squash_rebuild(
-            repo,
-            range_commits=range_commits,
-            groups=groups,
-            messages=messages,
-            sign=True,
+            repo, range_commits=range_commits, groups=groups,
+            messages=plan.messages, sign=True,
         )
     except RewriteError as e:
-        # Restore the original HEAD from the backup we just made.
         subprocess.run(
-            ["git", "-C", str(repo), "reset", "--hard", backup_name],
+            ["git", "-C", str(repo), "reset", "--hard", plan.backup_name],
             capture_output=True, check=False,
         )
         print(f"sanitize-personal-commits: squash failed: {e}", file=sys.stderr)
         return 6
 
-    collapsed = sum(len(g.run_shas) for g in groups)
+    collapsed = sum(len(g["run_shas"]) for g in plan.squash)
     print(
         f"sanitize-personal-commits: squashed {collapsed} commit(s) into "
-        f"{len(groups)} after-hours commit(s); original HEAD preserved on branch "
-        f"{backup_name}",
+        f"{len(plan.squash)} after-hours commit(s); original HEAD preserved on branch "
+        f"{plan.backup_name}",
         file=sys.stderr,
     )
-    # Machine-readable line so the slash command can offer to delete the backup.
-    print(f"BACKUP_BRANCH={backup_name}")
-
-    if rewrite_only:
-        return 0
-    return _do_push(repo, push_args, dry_run, force=force)
+    print(f"BACKUP_BRANCH={plan.backup_name}")
+    return 0
 
 
 if __name__ == "__main__":

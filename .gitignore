@@ -18,7 +18,6 @@
 !/scripts/
 !/shell/
 !/docs/
-!/memory/
 !/output-styles/
 
 # Override the global excludesfile (~/.gitignore.global), which ignores
