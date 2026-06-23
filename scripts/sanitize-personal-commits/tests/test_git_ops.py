@@ -125,6 +125,44 @@ def test_rewrite_dates_updates_timestamps(tmp_path):
     assert updated[1].committer_date == new_b
 
 
+def test_rewrite_dates_normalizes_author_to_committer_for_passthrough(tmp_path):
+    # A passthrough commit (not in the rewrite list) with author != committer — as
+    # produced by an amend — must have its author date normalized to its committer
+    # date, so a rewritten ancestor can't leave the author timeline inverted.
+    repo = init_repo(tmp_path / "r")
+    make_commit(repo, "a", "2026-06-22T10:00:00+10:00")
+    (repo / "b.txt").write_text("b")
+    subprocess.run(["git", "-C", str(repo), "add", "b.txt"], check=True)
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_EMAIL": "me@example.com", "GIT_COMMITTER_EMAIL": "me@example.com",
+        "GIT_AUTHOR_NAME": "Me", "GIT_COMMITTER_NAME": "Me",
+        "GIT_AUTHOR_DATE": "2026-06-22T10:30:00+10:00",     # earlier (amend-style)
+        "GIT_COMMITTER_DATE": "2026-06-22T19:00:00+10:00",  # later
+    }
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "b"], check=True, env=env)
+
+    commits = list_all_commits(repo, local_email="me@example.com")
+    a_sha = commits[1].sha  # init, a, b -> a
+    rewrite_dates(
+        repo,
+        [(a_sha, datetime.fromisoformat("2026-06-22T09:00:00+10:00"))],
+        sign=False,
+        range_expr="HEAD",
+    )
+
+    b_sha = list_all_commits(repo, local_email="me@example.com")[-1].sha
+    ai = subprocess.run(
+        ["git", "-C", str(repo), "show", "-s", "--format=%aI", b_sha],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    ci = subprocess.run(
+        ["git", "-C", str(repo), "show", "-s", "--format=%cI", b_sha],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert ai == ci, f"passthrough author {ai} != committer {ci}"
+
+
 def test_rewrite_dates_no_op_with_empty_list(tmp_path):
     repo = init_repo(tmp_path / "r")
     make_commit(repo, "a")

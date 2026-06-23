@@ -161,7 +161,17 @@ def rewrite_dates(
             f'    {sha}) export GIT_AUTHOR_DATE="{iso}"; '
             f'export GIT_COMMITTER_DATE="{iso}" ;;'
         )
-    env_filter = "case $GIT_COMMIT in\n" + "\n".join(cases) + "\n  esac"
+    # Every other (passthrough) commit keeps its committer date but has its author
+    # date normalized to match it. Without this, a commit whose author date differs
+    # from its committer date (e.g. from an amend) keeps a stale author date that
+    # can fall before a rewritten ancestor, inverting the author timeline that
+    # `git log` displays.
+    env_filter = (
+        "case $GIT_COMMIT in\n"
+        + "\n".join(cases)
+        + '\n    *) export GIT_AUTHOR_DATE="$GIT_COMMITTER_DATE" ;;'
+        + "\n  esac"
+    )
 
     cmd = [
         "git", "-C", str(repo), "filter-branch", "-f",
@@ -315,18 +325,19 @@ def squash_rebuild(
 
         if sha in fold_by_target:
             message = messages[sha]
-            author = (meta["an"], meta["ae"], meta["aI"])
             committer = (meta["cn"], meta["ce"], meta["cI"])
         elif sha in synth_by_last:
             g = synth_by_last[sha]
             message = messages[sha]
             iso = g.new_date.isoformat()
-            author = (meta["an"], meta["ae"], iso)
             committer = (meta["cn"], meta["ce"], iso)
         else:
             message = meta["message"]
-            author = (meta["an"], meta["ae"], meta["aI"])
             committer = (meta["cn"], meta["ce"], meta["cI"])
+
+        # Author date mirrors the committer date so the author timeline (what
+        # `git log` shows) stays monotonic even for amended passthrough commits.
+        author = (meta["an"], meta["ae"], committer[2])
 
         new_parent = _commit_tree(
             repo,

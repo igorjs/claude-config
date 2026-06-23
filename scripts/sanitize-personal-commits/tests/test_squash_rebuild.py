@@ -140,6 +140,35 @@ def test_passthrough_clean_commit_after_squashed_run(tmp_path):
     assert after[-1].committer_date == datetime.fromisoformat("2026-06-22T20:00:00+10:00")
 
 
+def test_squash_normalizes_author_to_committer(tmp_path):
+    repo = _setup(tmp_path)
+    _commit(repo, "a", "2026-06-22T10:00:00+10:00")  # forbidden
+    _commit(repo, "b", "2026-06-22T12:00:00+10:00")  # forbidden
+    _commit(repo, "d", "2026-06-22T19:00:00+10:00")  # evening fold target
+    # passthrough commit with author != committer (amend-style)
+    (repo / "e.txt").write_text("e")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "e", env={
+        "GIT_AUTHOR_EMAIL": "me@example.com", "GIT_COMMITTER_EMAIL": "me@example.com",
+        "GIT_AUTHOR_NAME": "me", "GIT_COMMITTER_NAME": "me",
+        "GIT_AUTHOR_DATE": "2026-06-22T17:30:00+10:00",
+        "GIT_COMMITTER_DATE": "2026-06-22T20:00:00+10:00",
+    })
+
+    commits = list_all_commits(repo, local_email="me@example.com")
+    rng = commits[1:]
+    groups = plan_squash(rng, now=datetime.fromisoformat("2026-06-22T22:00:00+10:00"), rng_seed=1)
+    squash_rebuild(
+        repo, range_commits=rng, groups=groups,
+        messages={_rep_sha(groups[0]): "feat: combined change"}, sign=False,
+    )
+
+    for sha in _git(repo, "log", "--format=%H", "-3").stdout.split():
+        ai = _git(repo, "show", "-s", "--format=%aI", sha).stdout.strip()
+        ci = _git(repo, "show", "-s", "--format=%cI", sha).stdout.strip()
+        assert ai == ci, f"{sha[:8]} author {ai} != committer {ci}"
+
+
 def test_parent_sha_helper(tmp_path):
     repo = _setup(tmp_path)
     a = _commit(repo, "a", "2026-06-22T10:00:00+10:00")
