@@ -120,11 +120,6 @@
             "command": "~/.claude/hooks/rm-workspace-guard.sh",
             "if": "Bash(rm:*)",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/git-push-interceptor.py",
-            "timeout": 5
           }
         ]
       },
