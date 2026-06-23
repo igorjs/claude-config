@@ -13,9 +13,25 @@ My personal [Claude Code](https://docs.claude.com/en/docs/claude-code) setup: a 
 
 ## Install
 
-The repo has to live at `~/.claude`. Every path inside it is hardcoded to `$HOME/.claude`.
+The config lives at `~/.claude` (every path inside is hardcoded to `$HOME/.claude`).
 
-Fresh machine, no `~/.claude` yet:
+Quickest, no clone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
+```
+
+It downloads the latest release (or `main` if none yet), backs up anything it
+replaces to `~/.claude/backups/`, runs `brew bundle`, sets up the `scripts/`
+venv, and adds the launcher to your `~/.zshrc`. Pin a version, or install files
+only:
+
+```bash
+CLAUDE_CONFIG_REF=v0.1.0 curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash -s -- --no-setup
+```
+
+Prefer git? Clone onto a fresh machine:
 
 ```bash
 git clone https://github.com/igorjs/claude-config.git ~/.claude
