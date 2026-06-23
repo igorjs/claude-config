@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """Build a commit message for a squashed run of commits.
 
 The message must read like an ordinary commit describing the code changes and must

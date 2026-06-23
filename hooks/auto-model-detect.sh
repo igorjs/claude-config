@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # UserPromptSubmit hook: detect design/architecture intent in the prompt and
 # nudge Claude (the main loop) to delegate the heavy thinking to an Opus
 # subagent instead of doing it inline on Sonnet.

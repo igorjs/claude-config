@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # PreToolUse: EnterPlanMode — restore Opus + max thinking for planning phase.
 # Writes settings.json so the next session also starts correctly.
 . "$(dirname "$0")/lib/common.sh"

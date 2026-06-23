@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 """The analysed plan, persisted between the `analyse` and `apply` stages.
 
 `analyse` computes exactly what will change and writes it here; `apply` reads it

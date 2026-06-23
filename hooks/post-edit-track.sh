@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # PostToolUse hook on Edit/Write/NotebookEdit: record edited absolute path + ts
 # to per-session edits.jsonl. Consumed by preread-edit-check.sh + statusline.
 . "$(dirname "$0")/lib/common.sh"
