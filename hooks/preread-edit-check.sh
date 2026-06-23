@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # PreToolUse hook on Read: if the target was edited by this session within the
 # last N minutes, inject a system reminder so Claude doesn't waste tokens
 # re-reading content already in context.

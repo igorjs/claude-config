@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # PreCompact hook: fires when Claude Code is about to auto-compact the
 # conversation. By the time this fires, the cheap-cache window is gone and the
 # next turn will reload a lossy summary. Strong signal to wrap up + restart.

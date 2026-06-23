@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # Stop / SessionEnd hook: mark this session as having ended cleanly.
 # Used by session-init.sh on the NEXT session start to detect crashes
 # (orphaned sessions with no clean-exit marker).

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # SessionStart hook:
 #   1. Prepare per-session runtime dir + zero counters.
 #   2. On fresh startup (source=startup), detect orphaned previous sessions
