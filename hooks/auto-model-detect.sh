@@ -34,10 +34,9 @@ fi
 msg="$(cat <<'MSG'
 This prompt looks like design / architecture work. Your main session is on Sonnet for cost. Before reasoning inline, consider delegating to an Opus subagent — its full deliberation stays in the subagent's context, only the conclusion returns to yours.
 
-Recommended subagents (invoke with the Agent tool, passing `model: "opus"`):
-  - feature-dev:code-architect — feature/component design with codebase grounding
-  - Plan — implementation planning for known-shape work
-  - superpowers:brainstorming — ideation / requirements before any code
+Recommended for design-heavy prompts:
+  - Plan (Agent tool, `model: "opus"`) — implementation planning and architecture with codebase grounding
+  - superpowers:brainstorming (Skill tool) — ideation / requirements before any code
 
 If the prompt is actually small-scope (e.g. quick choice between two named options), staying on Sonnet inline is fine. Use judgment.
 
