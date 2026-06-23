@@ -29,13 +29,9 @@
 .venv/
 .pytest_cache/
 
-# Plugin/marketplace manifests record what was installed (custom intent);
-# the downloaded plugin payloads do not.
-!/plugins/
-/plugins/*
-!/plugins/config.json
-!/plugins/installed_plugins.json
-!/plugins/known_marketplaces.json
+# plugins/ stays out of git: installed_plugins.json and known_marketplaces.json
+# bake in machine-specific absolute paths, so the manifests aren't portable.
+# (Default /* rule already ignores it; no allowlist entry.)
 
 # --- Re-ignore generated/vendored content inside tracked dirs ---
 __pycache__/
