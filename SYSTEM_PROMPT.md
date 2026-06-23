@@ -20,7 +20,7 @@ RTK (Rust Token Killer) is active: rewrites commands via PreToolUse hook, 0 over
 
 **Plan mode**: For design work (new features, architecture, non-trivial refactors), enter plan mode first. `settings.json` routes plan mode to Opus, execution to Sonnet. Skip for mechanical, already-specified work.
 
-**Model routing**: Sonnet = default for most coding work (and session default). Haiku = spawned agents on mechanical/formatting/search tasks (3× cheaper); the default for such subagents, escalate only when the task needs more. Opus = deep architectural planning only, and only when Sonnet wasn't enough; keep under 20% of total usage. "Haiku for subagents" is not absolute: escalate to Sonnet for real coding and Opus for architecture (`code-architect`, `Plan`, `brainstorming`).
+**Model routing**: Sonnet = default for most coding work (and session default). Haiku = spawned agents on mechanical/formatting/search tasks (3× cheaper); the default for such subagents, escalate only when the task needs more. Opus = deep architectural planning only, and only when Sonnet wasn't enough; keep under 20% of total usage. "Haiku for subagents" is not absolute: escalate to Sonnet for real coding and Opus for architecture (the `Plan` agent, the `superpowers:brainstorming` skill).
 
 **Parallel work**: Fan out independent subtasks via parallel `Agent` calls. For longer orchestration use `TaskCreate`/`TaskList`/`TaskGet`/`TaskOutput`/`TaskUpdate`/`TaskStop`.
 
