@@ -4,10 +4,12 @@
 # License compliance gate. Two checks land here:
 #
 #   1. SPDX-License-Identifier headers. Every source file in the repo
-#      (across every language we ship) must begin with a line containing
-#      `SPDX-License-Identifier:`. The comment marker preceding it
-#      (`//`, `#`, `--`, `/*`, `<!--`) is language-specific so we only
-#      grep for the identifier text on line 1. This step is universal:
+#      (across every language we ship) must carry a line containing
+#      `SPDX-License-Identifier:` at the top: line 1, or directly below a
+#      leading `#!` shebang (shell scripts keep the shebang on line 1).
+#      The comment marker preceding it (`//`, `#`, `--`, `/*`, `<!--`) is
+#      language-specific so we grep for the identifier text, not the
+#      marker. This step is universal:
 #      it runs regardless of `language` and covers `.rs`, `.ts`, `.tsx`,
 #      `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rb`, `.sh`, `.bash`,
 #      `.c`, `.h`, `.cpp`, `.cc`, `.hpp`, `.cs`, `.java`, `.kt`, `.swift`,
@@ -96,7 +98,13 @@ jobs:
             -not -path "./dist/*" \
             -not -path "./build/*" \
             | while read -r f; do
-                head -1 "$f" | grep -q "SPDX-License-Identifier:" || echo "$f"
+                if head -1 "$f" | grep -q "SPDX-License-Identifier:"; then
+                  :
+                elif head -1 "$f" | grep -q '^#!' && head -3 "$f" | grep -q "SPDX-License-Identifier:"; then
+                  :
+                else
+                  echo "$f"
+                fi
               done)
           if [ -n "$missing" ]; then
             echo "ERROR: missing SPDX-License-Identifier header on:"
