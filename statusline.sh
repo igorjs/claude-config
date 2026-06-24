@@ -3,16 +3,16 @@ set +e   # Never let an error silently kill the status line
 # ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
 # ║  Claude Code Status Line                                                                     ║
 # ║                                                                                              ║
-# ║  Three-line status bar rendered below the Claude Code prompt.                                ║
+# ║  Two-line minimalist status bar rendered below the Claude Code prompt.                       ║
 # ║  Receives session data as JSON on stdin; outputs ANSI-colored text.                          ║
 # ║                                                                                              ║
 # ║  Line 1 (LEFT):  ~/path branch [$]                                                           ║
-# ║  Line 1 (RIGHT): PR #42 CI  JIRA @author APPROVED by name (1h ago)                           ║
-# ║  Line 2:         Model: Sonnet 4.6 (max) │ Ctx: 72% → 18% to compact │ Up 18m                ║
-# ║  Line 3:         Tokens In: 48k │ Cache 86% │ Cost: $0.42 ($1.42/min) │ Rate 5h: 23% 7d: 41% ║
+# ║  Line 1 (RIGHT): PR #42 CI ✗ JIRA @author CHANGES REQUESTED by name (1h ago)                ║
+# ║  Line 2: Opus 4.8 (high) | Ctx [███░░░] 38% | 5h 23% (2h left) | $0.42 | Cache 99%           ║
 # ║                                                                                              ║
-# ║  Configure by setting STATUSLINE_* env vars or editing the feature                           ║
-# ║  flags section below.                                                                        ║
+# ║  Secondary segments self-suppress until actionable (CI only on fail/run, 7d                  ║
+# ║  rate only >50%, compaction arrow only >65%, session age only >10m).                         ║
+# ║  Configure via STATUSLINE_* env vars or the feature flags below.                             ║
 # ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 
 # ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -28,23 +28,12 @@ SHOW_CI="${STATUSLINE_SHOW_CI:-true}"                # CI status rollup (workspa
 SHOW_MODEL="${STATUSLINE_SHOW_MODEL:-true}"          # Model name + effort
 SHOW_CONTEXT="${STATUSLINE_SHOW_CONTEXT:-true}"      # Context window % (with compaction proximity arrow)
 SHOW_SESSION_AGE="${STATUSLINE_SHOW_SESSION_AGE:-true}"   # "Up 18m" since session start (needs hooks)
-SHOW_TOKENS_IN="${STATUSLINE_SHOW_TOKENS_IN:-true}"  # Total input tokens (out is implied by cost)
-SHOW_CACHE_RATIO="${STATUSLINE_SHOW_CACHE_RATIO:-true}"   # Cache hit ratio % (replaces raw write/read)
-SHOW_ACTIVITY="${STATUSLINE_SHOW_ACTIVITY:-false}"   # Tools / Edits counters (from hook state)
-SHOW_RATE_LIMITS="${STATUSLINE_SHOW_RATE_LIMITS:-true}" # 5h / 7d quota usage %
+SHOW_CACHE_RATIO="${STATUSLINE_SHOW_CACHE_RATIO:-true}"   # Cache hit ratio %
+SHOW_RATE_LIMITS="${STATUSLINE_SHOW_RATE_LIMITS:-true}" # 5h quota (+ 7d when >50%)
 
-# Removed sections (no SHOW_* flag because they were dropped during the
-# enhance/simplify pass — they were low-signal noise):
-#   - Node version    (rarely actionable)
-#   - Window size     (rarely changes)
-#   - Duration        (cost is the better signal)
-#   - Lines +/-       (Edits counter covers this)
-#   - Raw cache W/R   (replaced by SHOW_CACHE_RATIO)
-#   - Tokens Out      (cost subsumes; SHOW_TOKENS_IN covers input side)
+CTX_BAR_WIDTH="${STATUSLINE_CTX_BAR_WIDTH:-10}"   # cells in the context bar (1 per 10%)
 
-PR_TIMEOUT="${STATUSLINE_PR_TIMEOUT:-3}"             # Seconds before gh pr view is killed
 PR_CACHE_TTL="${STATUSLINE_PR_CACHE_TTL:-60}"        # Seconds before cached PR data is refetched
-CI_TIMEOUT="${STATUSLINE_CI_TIMEOUT:-3}"             # Seconds before standalone CI fetch is killed
 CI_CACHE_TTL="${STATUSLINE_CI_CACHE_TTL:-60}"        # Seconds before cached CI data is refetched
 
 # Cache directory. Defaults to $XDG_CACHE_HOME/statusline or ~/.cache/statusline.
@@ -68,7 +57,7 @@ MAUVE='\033[38;2;203;166;247m'    # #cba6f7 — merged PRs
 DIM='\033[38;2;127;132;156m'      # #7f849c — labels, separators
 RESET='\033[0m'
 
-SEP="${DIM} │ ${RESET}"           # Separator used between line 2 segments
+SEP="${DIM} | ${RESET}"           # Dim pipe between line-2 segments
 
 # ┌──────────────────────────────────────────────────────────────────────────────┐
 # │  Utility Functions                                                           │
@@ -91,6 +80,21 @@ ctx_color() {
     elif [[ "${pct:-0}" -gt 65 ]]; then printf '%b' "$YELLOW"
     else printf '%b' "$GREEN"
     fi
+}
+
+# Render a context-usage progress bar of `width` cells, one cell per (100/width)%.
+# Filled cells use █, empty cells ░. Fill rounds to the nearest cell and clamps
+# to [0, width]. Caller wraps it in color. Usage: ctx_bar 38 10  ->  ████░░░░░░
+ctx_bar() {
+    local used="${1%%.*}" width="${2:-10}"
+    [[ -z "$used" ]] && used=0
+    local filled=$(( (used * width + 50) / 100 ))
+    [[ "$filled" -lt 0 ]] && filled=0
+    [[ "$filled" -gt "$width" ]] && filled=$width
+    local empty=$(( width - filled )) bar="" i
+    for ((i = 0; i < filled; i++)); do bar="${bar}█"; done
+    for ((i = 0; i < empty;  i++)); do bar="${bar}░"; done
+    printf '%s' "$bar"
 }
 
 # Format an age in seconds as a compact "Xs", "Xm", or "XhYm" string.
@@ -144,9 +148,8 @@ compact_gap() {
     printf '%d' "$gap"
 }
 
-# Append a labelled segment to a named line variable. Same as append_to but
-# without the trailing space between label and value — used for tight composite
-# segments like "Ctx: 72% → 12%".
+# Append a pre-rendered segment to a named line variable, inserting SEP between
+# segments. Usage: append_raw line_2 "$(render_model)"
 append_raw() {
     local var="$1" content="$2"
     local cur="${!var}"
@@ -233,17 +236,6 @@ if [[ ! -d "$CACHE_DIR" ]]; then
     mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
 fi
 
-# Append a labelled segment to a named line variable. Handles separator insertion.
-# Usage: append_to line_a "Label:" COLOR "value"
-# Uses ${!var} + printf -v (both bash ≥ 3.1) to support 80-col multi-line output.
-append_to() {
-    local var="$1" label="$2" color="$3" value="$4"
-    local cur="${!var}"
-    [[ -n "$cur" ]] && cur="${cur}${SEP}"
-    cur="${cur}${DIM}${label}${RESET} ${color}${value}${RESET}"
-    printf -v "$var" '%s' "$cur"
-}
-
 # ┌──────────────────────────────────────────────────────────────────────────────┐
 # │  Parse JSON Input                                                            │
 # │                                                                              │
@@ -260,11 +252,10 @@ if command -v jq >/dev/null 2>&1 && [[ -n "$input" ]]; then
         @sh "session_id=\(.session_id // "")",
         @sh "model=\(.model.display_name // "")",
         @sh "used=\(.context_window.used_percentage // "")",
-        @sh "total_in=\(.context_window.total_input_tokens // "")",
-        @sh "total_out=\(.context_window.total_output_tokens // "")",
         @sh "cache_create=\(.context_window.current_usage.cache_creation_input_tokens // "")",
         @sh "cache_read=\(.context_window.current_usage.cache_read_input_tokens // "")",
         @sh "rl_5h=\(.rate_limits.five_hour.used_percentage // "")",
+        @sh "rl_5h_reset=\(.rate_limits.five_hour.resets_at // "")",
         @sh "rl_7d=\(.rate_limits.seven_day.used_percentage // "")",
         @sh "json_effort=\(.effort.level // "")",
         @sh "json_thinking=\(if .thinking.enabled then "true" else "" end)",
@@ -274,8 +265,8 @@ if command -v jq >/dev/null 2>&1 && [[ -n "$input" ]]; then
         @sh "json_git_worktree=\(.workspace.git_worktree // "")",
         @sh "json_repo_owner=\(.workspace.repo.owner // "")",
         @sh "json_repo_name=\(.workspace.repo.name // "")",
-        @sh "cost_usd=\(.cost_usd // .usage.cost_usd // .session.cost_usd // "")",
-        @sh "wall_ms=\(.wall_ms // .session.wall_ms // .elapsed_ms // "")"
+        @sh "cost_usd=\(.cost.total_cost_usd // "")",
+        @sh "wall_ms=\(.cost.total_duration_ms // "")"
     ' 2>/dev/null) && eval "$_jq_out" 2>/dev/null || true
 fi
 
@@ -473,8 +464,8 @@ if [[ "$SHOW_PR" == true && "$git_in_repo" == true \
         right="$pr_label"
         # CI badge sits right after the PR number so build state is visible without
         # scanning past the Jira ticket, author, review state, and reviewer list.
+        # Pass is silent; only failing/running CI surfaces.
         case "$ci_state" in
-            pass)    right="${right} ${GREEN}CI ✓${RESET}" ;;
             fail)    right="${right} ${RED}CI ✗ ${ci_failed}/${ci_total}${RESET}" ;;
             running) right="${right} ${YELLOW}CI ● ${ci_running}/${ci_total}${RESET}" ;;
         esac
@@ -640,8 +631,8 @@ if [[ "$SHOW_CI" == true ]] && is_workspace_project "$cwd" \
 
     # Render onto the right side. With no PR the right side starts empty, so the
     # CI badge becomes the only token; that keeps line 1 the source of truth.
+    # Pass is silent; only failing/running CI surfaces.
     case "$ci_state" in
-        pass)    right="${right:+${right} }${GREEN}CI ✓${RESET}" ;;
         fail)    right="${right:+${right} }${RED}CI ✗ ${ci_failed}/${ci_total}${RESET}" ;;
         running) right="${right:+${right} }${YELLOW}CI ● ${ci_running}/${ci_total}${RESET}" ;;
     esac
@@ -663,41 +654,26 @@ else
 fi
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  LINES 2-3 — Model state + session economics                                 ║
+# ║  LINE 2 — Model state + session economics                                    ║
 # ║                                                                              ║
-# ║  Line A (Model + lifecycle):                                                 ║
-# ║    Model: Sonnet 4.6 (max) │ Ctx: 72% → 18% to compact │ Up 18m              ║
-# ║                                                                              ║
-# ║  Line B (Session economics):                                                 ║
-# ║    Tokens In: 48k │ Cache 86% │ Tools: 15 Edits: 3 │ Cost: $0.42 ($1.42/min) │
-# ║    │ Rate 5h: 23% 7d: 41%                                                    ║
+# ║  Opus 4.8 (high) | Ctx [███░░░] 38% | 5h 23% (2h left) | $0.42 | Cache 99%    ║
 # ║                                                                              ║
 # ║  Each section is a small render_* function — easy to disable / re-order.     ║
 # ╠══════════════════════════════════════════════════════════════════════════════╣
 
-# ── Resolve effort + thinking: prefer live JSON values from stdin ──
-# The JSON input now carries .effort.level and .thinking.enabled directly.
-# Fall back to env var and settings.json for sessions started before this
-# feature was available (older Claude Code builds).
-
+# Effort + thinking come straight from the JSON input (.effort.level / .thinking.enabled).
 effort="${json_effort:-}"
-[[ -z "$effort" ]] && effort="${CLAUDE_CODE_EFFORT_LEVEL:-}"
-if [[ -z "$effort" ]]; then
-    effort=$(jq -r '.effortLevel // empty' ~/.claude/settings.json 2>/dev/null)
-fi
 thinking="${json_thinking:-}"
-[[ -z "$thinking" ]] && thinking=$(jq -r '.alwaysThinkingEnabled // empty' ~/.claude/settings.json 2>/dev/null)
 
 # ── Section renderers ──
-# Each emits one composite segment (label + value, possibly chained) or nothing.
-# All gate on their SHOW_* flag + data availability. Composition into a line
-# happens at the bottom via append_raw.
+# Each emits one composite segment or nothing, gating on its SHOW_* flag + data.
+# Composition into line 2 happens at the bottom via append_raw.
 
 render_model() {
     [[ "$SHOW_MODEL" == true && -n "$model" ]] || return 0
     local extras="$effort"
     [[ "$thinking" == "true" ]] && extras="${extras:+${extras}, }thinking"
-    local label="${DIM}Model:${RESET} ${ORANGE}${model}${RESET}"
+    local label="${ORANGE}${model}${RESET}"
     [[ -n "$extras" ]] && label="${label} ${DIM}(${extras})${RESET}"
     printf '%s' "$label"
 }
@@ -706,15 +682,16 @@ render_context() {
     [[ "$SHOW_CONTEXT" == true && -n "$used" ]] || return 0
     local pct_int; pct_int=$(printf '%.0f' "$used")
     local color; color="$(ctx_color "$used")"
-    local out="${DIM}Ctx:${RESET} ${color}${pct_int}%${RESET}"
-    # Compaction proximity arrow only shown when in the warning zone.
+    local bar; bar="$(ctx_bar "$used" "$CTX_BAR_WIDTH")"
+    local out="${DIM}Ctx${RESET} ${color}[${bar}] ${pct_int}%${RESET}"
+    # Compaction proximity arrow only surfaces in the warning zone (>65%).
     local gap; gap="$(compact_gap "$used")"
+    [[ "${pct_int:-0}" -le 65 ]] && gap=""
     if [[ -n "$gap" ]]; then
         if [[ "$gap" -eq 0 ]]; then
             out="${out} ${DIM}→${RESET} ${RED}COMPACTING NEXT TURN${RESET}"
         else
-            local gap_color; gap_color="$(ctx_color "$used")"
-            out="${out} ${DIM}→${RESET} ${gap_color}${gap}%${RESET} ${DIM}to compact${RESET}"
+            out="${out} ${DIM}→${RESET} ${color}${gap}%${RESET} ${DIM}to compact${RESET}"
         fi
     fi
     printf '%s' "$out"
@@ -727,19 +704,8 @@ render_session_age() {
     local start; start=$(cat "$start_file" 2>/dev/null || echo 0)
     [[ "$start" -gt 0 ]] || return 0
     local age=$(( $(date +%s) - start ))
-    [[ "$age" -lt 60 ]] && return 0  # noisy under a minute
+    [[ "$age" -lt 600 ]] && return 0   # hide under 10 minutes
     printf '%s' "${DIM}Up${RESET} ${GREEN}$(fmt_age "$age")${RESET}"
-}
-
-render_tokens_in() {
-    [[ "$SHOW_TOKENS_IN" == true && -n "$total_in" && "$total_in" -gt 0 ]] || return 0
-    # Compact format: k for thousands, M for millions.
-    local n="$total_in" disp
-    if   [[ "$n" -ge 1000000 ]]; then disp="$(awk -v n="$n" 'BEGIN { printf "%.1fM", n/1000000 }')"
-    elif [[ "$n" -ge 1000    ]]; then disp="$(awk -v n="$n" 'BEGIN { printf "%.0fk", n/1000 }')"
-    else                              disp="$n"
-    fi
-    printf '%s' "${DIM}Tokens In:${RESET} ${GREEN}${disp}${RESET}"
 }
 
 render_cache_ratio() {
@@ -751,84 +717,49 @@ render_cache_ratio() {
     printf '%s' "${DIM}Cache${RESET} ${color}${pct}%${RESET}"
 }
 
-render_activity() {
-    [[ "$SHOW_ACTIVITY" == true && -n "${session_id:-}" ]] || return 0
-    local dir="$HOME/.claude/runtime/${session_id}"
-    [[ -d "$dir" ]] || return 0
-    local tools edits
-    tools=$(cat "$dir/tool-count" 2>/dev/null || echo 0)
-    edits=$(cat "$dir/edit-count" 2>/dev/null || echo 0)
-    [[ "${tools:-0}" -eq 0 && "${edits:-0}" -eq 0 ]] && return 0
-    local tcolor="$GREEN"
-    [[ "${tools:-0}" -ge 20 ]] && tcolor="$RED"
-    [[ "${tools:-0}" -ge 12 && "${tools:-0}" -lt 20 ]] && tcolor="$YELLOW"
-    printf '%s' "${DIM}Tools:${RESET} ${tcolor}${tools}${RESET} ${DIM}Edits:${RESET} ${GREEN}${edits}${RESET}"
-}
-
 render_cost() {
-    # Try cost field from JSON first; fall back to token-based estimation.
-    local est_cost=""
-    if [[ -n "$cost_usd" ]] && awk -v c="$cost_usd" 'BEGIN { exit (c+0 > 0) ? 0 : 1 }' 2>/dev/null; then
-        est_cost=$(printf '%.4f' "$cost_usd")
-        local out="${DIM}Cost:${RESET} ${ORANGE}\$${est_cost}${RESET}"
-        if [[ -n "$wall_ms" && "$wall_ms" -gt 0 ]]; then
-            local rate; rate=$(cost_per_min "$cost_usd" "$wall_ms")
-            [[ -n "$rate" ]] && out="${out} ${DIM}(\$${rate}/min)${RESET}"
-        fi
-        printf '%s' "$out"
-        return 0
-    fi
-    # Estimate from token counts + model-tier pricing ($/MTok).
-    [[ -n "$total_in" && "${total_in:-0}" -gt 0 ]] || return 0
-    local model_lc; model_lc=$(printf '%s' "${model:-}" | tr 'A-Z' 'a-z')
-    local ip op cwp crp
-    if   [[ "$model_lc" == *"opus"*  ]]; then ip=15;   op=75; cwp=18.75; crp=1.50
-    elif [[ "$model_lc" == *"haiku"* ]]; then ip=0.80; op=4;  cwp=1.00;  crp=0.08
-    else                                      ip=3;    op=15; cwp=3.75;  crp=0.30
-    fi
-    est_cost=$(awk -v ti="${total_in:-0}" -v to="${total_out:-0}" \
-                   -v cc="${cache_create:-0}" -v cr="${cache_read:-0}" \
-                   -v ip="$ip" -v op="$op" -v cwp="$cwp" -v crp="$crp" '
-        BEGIN {
-            reg = ti - cc - cr; if (reg < 0) reg = 0
-            printf "%.4f", (reg*ip + to*op + cc*cwp + cr*crp) / 1000000
-        }' 2>/dev/null)
-    [[ -z "$est_cost" || "$est_cost" == "0.0000" ]] && return 0
-    printf '%s' "${DIM}Cost~${RESET} ${ORANGE}\$${est_cost}${RESET}"
-}
-
-render_rate_limits() {
-    [[ "$SHOW_RATE_LIMITS" == true ]] || return 0
-    [[ -n "$rl_5h" || -n "$rl_7d" ]] || return 0
-    local out="${DIM}Rate${RESET}"
-    if [[ -n "$rl_5h" ]]; then
-        out="${out} ${DIM}5h:${RESET} $(rl_color "$rl_5h")$(printf '%.0f' "$rl_5h")%${RESET}"
-    fi
-    if [[ -n "$rl_7d" ]]; then
-        out="${out} ${DIM}7d:${RESET} $(rl_color "$rl_7d")$(printf '%.0f' "$rl_7d")%${RESET}"
+    [[ -n "$cost_usd" ]] || return 0
+    awk -v c="$cost_usd" 'BEGIN { exit (c + 0 > 0) ? 0 : 1 }' 2>/dev/null || return 0
+    local est_cost; est_cost=$(printf '%.4f' "$cost_usd")
+    local out="${ORANGE}\$${est_cost}${RESET}"   # $ is the cue; no label
+    if [[ -n "$wall_ms" && "$wall_ms" -gt 0 ]]; then
+        local rate; rate=$(cost_per_min "$cost_usd" "$wall_ms")
+        [[ -n "$rate" ]] && out="${out} ${DIM}(\$${rate}/min)${RESET}"
     fi
     printf '%s' "$out"
 }
 
-# ── Compose lines ──
-# Line A: lifecycle (what model, where in the session lifecycle)
-# Line B: economics (what's been done, what it's costing, how much budget left)
+# Always-on 5h quota: used % colored by threshold, plus time until the window resets.
+render_rate_5h() {
+    [[ "$SHOW_RATE_LIMITS" == true && -n "$rl_5h" ]] || return 0
+    local out="${DIM}5h${RESET} $(rl_color "$rl_5h")$(printf '%.0f' "$rl_5h")%${RESET}"
+    if [[ -n "$rl_5h_reset" ]]; then
+        local left=$(( rl_5h_reset - $(date +%s) ))
+        [[ "$left" -gt 0 ]] && out="${out} ${DIM}($(fmt_age "$left") left)${RESET}"
+    fi
+    printf '%s' "$out"
+}
 
-line_a=""
-line_b=""
+# Trailing 7d quota — surfaces only once it crosses 50% (5h has its own segment).
+render_rate_7d() {
+    [[ "$SHOW_RATE_LIMITS" == true && -n "$rl_7d" ]] || return 0
+    awk -v v="${rl_7d:-0}" 'BEGIN { exit (v + 0 > 50) ? 0 : 1 }' 2>/dev/null || return 0
+    printf '%s' "${DIM}Rate 7d:${RESET} $(rl_color "$rl_7d")$(printf '%.0f' "$rl_7d")%${RESET}"
+}
 
-for seg in "$(render_model)" "$(render_context)" "$(render_session_age)"; do
-    [[ -n "$seg" ]] && append_raw line_a "$seg"
-done
-
+# ── Compose line 2 ──
+# model · ctx bar · 5h quota · cost · cache · age · 7d-rate. Secondary segments
+# self-suppress; empties are skipped so separators never double up.
+line_2=""
 for seg in \
-    "$(render_tokens_in)" \
-    "$(render_cache_ratio)" \
+    "$(render_model)" \
+    "$(render_context)" \
+    "$(render_rate_5h)" \
     "$(render_cost)" \
-    "$(render_rate_limits)"; do
-    [[ -n "$seg" ]] && append_raw line_b "$seg"
+    "$(render_cache_ratio)" \
+    "$(render_session_age)" \
+    "$(render_rate_7d)"; do
+    [[ -n "$seg" ]] && append_raw line_2 "$seg"
 done
-
-[[ -n "$line_a" ]] && printf '%b\n' "$line_a"
-[[ -n "$line_b" ]] && printf '%b\n' "$line_b"
+[[ -n "$line_2" ]] && printf '%b\n' "$line_2"
 exit 0

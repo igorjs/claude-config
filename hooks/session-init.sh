@@ -59,64 +59,9 @@ fi
 [[ -n "$current_hash" && "$source" == "startup" ]] && \
   printf '%s' "$current_hash" > "$hash_file" 2>/dev/null
 
-# Crash detection only runs on fresh startup.
-[[ "$source" != "startup" ]] && exit 0
-
-current_sid="$(hi_session_id)"
-now="$(date +%s)"
-
-# Window: only flag sessions that were active in the last 24h. Older orphans
-# are stale and almost certainly not what the user wants to recover.
-WINDOW_SECONDS=$((24 * 3600))
-
-# Find the most recent OTHER session dir (excluding current) that lacks a
-# clean-exit marker and was active within the window.
-orphan_sid=""
-orphan_age=""
-orphan_cwd=""
-
-# Iterate sessions newest-first by mtime of any state file (start-ts is the
-# proxy — every initialized session has one).
-while IFS= read -r sdir; do
-  sid="$(basename "$sdir")"
-  [[ "$sid" == "$current_sid" ]] && continue
-  [[ -d "$sdir" ]] || continue
-  [[ -f "$sdir/start-ts" ]] || continue
-  # Skip cleanly-ended sessions.
-  [[ -f "$sdir/clean-exit" ]] && continue
-  # Need a recent activity timestamp to consider this a real "in progress" orphan.
-  last_ts=$(cat "$sdir/last-clean-ts" 2>/dev/null || cat "$sdir/start-ts" 2>/dev/null || echo 0)
-  age=$((now - last_ts))
-  [[ "$age" -gt "$WINDOW_SECONDS" ]] && continue
-  # Only need the most recent one.
-  orphan_sid="$sid"
-  orphan_age="$age"
-  break
-done < <(
-  # Enumerate session dirs by mtime descending. Avoids ls -t because user
-  # shells often set CLICOLOR_FORCE which would inject ANSI escapes into
-  # the filenames downstream.
-  find "${RUNTIME_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null |
-    while IFS= read -r d; do
-      ts=$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo 0)
-      printf '%s\t%s\n' "$ts" "$d"
-    done | sort -rn | cut -f2-
-)
-
-[[ -z "$orphan_sid" ]] && exit 0
-
-# Compose a human age string.
-if   [[ "$orphan_age" -lt 60   ]]; then age_str="${orphan_age}s ago"
-elif [[ "$orphan_age" -lt 3600 ]]; then age_str="$((orphan_age / 60))m ago"
-else                                    age_str="$((orphan_age / 3600))h ago"
-fi
-
-user_msg="⚠ Previous session ${orphan_sid:0:8}… last seen ${age_str} did not end cleanly (possible crash). Recover with: claude --resume ${orphan_sid} --fork-session   (the --fork-session flag re-initializes settings/plugins/hooks from current settings.json.)"
-
-claude_msg="On startup I detected an orphaned previous session (id ${orphan_sid}, last active ${age_str}) — no clean-exit marker. The user has been informed and given the recovery command. If they ask about recovering, the session transcript should be at ~/.claude/projects/<project-slug>/${orphan_sid}/ — read it to understand what was in progress."
-
-jq -cn --arg um "$user_msg" --arg cm "$claude_msg" '
-  { systemMessage: $um,
-    hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: $cm } }
-'
+# NOTE: crash-recovery warning removed. `ccd` restores the most recent session
+# per directory, so the "did not end cleanly" warning was redundant, and it
+# could not distinguish a live session (no clean-exit yet, but running) from a
+# real crash, so it kept flagging healthy sessions. Recover any session with
+# `ccd` in its directory, or `claude --resume <id>` for a specific one.
 exit 0

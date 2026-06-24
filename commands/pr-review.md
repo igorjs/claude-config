@@ -24,7 +24,9 @@ GitHub rejects `APPROVE` and `REQUEST_CHANGES` events from the PR author. In sel
 
 ## Voice rules (mandatory)
 
-Invoke the `grounding-review` skill before drafting any finding. The full discipline lives there. The non-negotiable points for inline comments posted to GitHub:
+Invoke the `grounding-review` skill before drafting any finding, and load the `writing-style` skill alongside it (grounding-review depends on it for voice, banned words, and GitHub comment patterns). The full discipline lives in those two skills.
+
+Comment bodies are read by another engineer, so they use the humane `writing-style` register (warm, contractions, constructive), NOT the terse operator voice from the "Concise & Direct" output style or system prompt `## Output`. Where those would conflict, `writing-style` wins for anything posted to GitHub. The non-negotiable points for inline comments posted to GitHub:
 
 - **Conventional Comments label + decoration on every finding, PLAIN TEXT (no bold).** Start the body with `issue (non-blocking):`, `suggestion:`, `nitpick:`. NEVER wrap in `**...**`. Per writing-style: "a human typing fast doesn't wrap labels in `**`." Valid labels: `issue`, `suggestion`, `nitpick`, `question`, `thought`, `todo`. Valid decorations: `(blocking)`, `(non-blocking)`, `(if-minor)`.
 - **1-2 sentences for non-blocking findings.** One ideal, two max. Blocking findings MAY run longer because there's a decision to argue.
@@ -36,7 +38,7 @@ Invoke the `grounding-review` skill before drafting any finding. The full discip
 - **No hedging.** Ban: "may actually be", "I'd lean toward", "that said", "worth noting", "it's worth mentioning", "one could argue".
 - **No meta-justification.** "since X is a foot-gun" is reviewer-reasoning, not actionable info.
 - **Casual register.** Fragments OK. Lowercase verbs fine.
-- **No em dashes or en dashes.** Hard rule from global CLAUDE.md.
+- **No em dashes or en dashes.** Use commas, colons, or periods. Hard rule, also enforced in the system prompt and `writing-style`.
 
 ## Execution rules
 
