@@ -91,7 +91,7 @@ Slash commands live in `commands/` and run as `/<name>` inside a session:
 - `/pr-review`: review a PR (or the current branch as a self-review) using the `grounding-review` discipline and Conventional Comments, posted as a pending GitHub review for you to submit.
 - `/address-pr-comments`: walk unresolved PR review comments one at a time, apply a fix or draft a reply, then push and post the replies with the new SHA.
 - `/sanitize-personal-commits`: analyse business-hours commit timestamps, preview the fix, and apply on confirmation. Two stages, so history changes only when you approve.
-- `/learn-project`: analyse the current repo (git history, code structure, PRs, and JIRA/Confluence when reachable) and store distilled topics as memory facts, routed per-project or global. Read-only on the repo; confirms before writing.
+- `/learn-project`: analyse the current repo (git history, code structure, PRs, and JIRA/Confluence when reachable) and store distilled topics as memory facts, routed per-project or global, plus a `graph.json` of the memory graph for navigation. Read-only on the repo; confirms before writing.
 
 ## Skills
 
