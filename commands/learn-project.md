@@ -1,20 +1,21 @@
 ---
-description: Deeply learn the current project (git history, PRs, JIRA, Confluence) and store distilled topics in the memory system, routed per-project vs global.
+description: Deeply learn the current project (git history, PRs, JIRA, Confluence), store distilled topics in the memory system (routed per-project vs global), and export a navigable graph.json of the memory graph.
 allowed-tools: Bash, Read, Grep, Glob, Write, Task, WebFetch
-argument-hint: "[--refresh] [--max-prs N] [--max-commits N]"
+argument-hint: "[--refresh] [--graph-only] [--max-prs N] [--max-commits N]"
 model: opus
 effort: high
 ---
 
 # Learn Project
 
-Build a durable mental model of the repo you're in and persist it as memory facts. Read broadly (code, git history, PRs, and JIRA/Confluence when reachable), distill into topics, classify each fact as repo-specific or cross-project, and write it in the memory format from the system prompt's **Memory** section. Read-only on the project: the only writes are files under `.claude/memory/` and a single `.gitignore` line.
+Build a durable mental model of the repo you're in and persist it as memory facts. Read broadly (code, git history, PRs, and JIRA/Confluence when reachable), distill into topics, classify each fact as repo-specific or cross-project, and write it in the memory format from the system prompt's **Memory** section. Read-only on the project: the only writes are files under `.claude/memory/` (fact files plus a `graph.json` of the memory graph) and a single `.gitignore` line.
 
 ## Argument parsing
 
 Parse `$ARGUMENTS`:
 
 - `--refresh` → re-derive and supersede existing learned facts instead of skipping them.
+- `--graph-only` → skip Phases 1-3; rebuild the project `graph.json` from current memory (Phase 4.5), then report. Use after hand-editing facts.
 - `--max-prs N` (default 200) and `--max-commits N` (default: all, summarized) → bound scope on large repos.
 - Anything else → ignore with a one-line warning; don't abort.
 
@@ -67,7 +68,7 @@ Dispatch these collectors in parallel. Each returns a compact structured summary
 
 ## Phase 2: Analyze into topics (parallel subagents)
 
-Feed the Phase 1 findings to one analyst per cluster. Each emits **candidate facts**, where each fact has: `title`, `body` (the fact, then Why, then How to apply), proposed `type` (`project` for repo knowledge, `reference` for external pointers), `scope` (`repo` | `global`), and proposed `links` edges.
+Feed the Phase 1 findings to one analyst per cluster. Each emits **candidate facts**, where each fact has: `title`, `body` (the fact, then Why, then How to apply), proposed `type` (`project` for repo knowledge, `reference` for external pointers), `scope` (`repo` | `global`), proposed `links` edges, and `anchors` (repo-relative code locations the fact describes: dirs, files, or `file#symbol`).
 
 Clusters:
 
@@ -101,11 +102,38 @@ grep -qxF '.claude/memory/' "$ROOT/.gitignore" 2>/dev/null || printf '.claude/me
 Then write each approved fact:
 
 - One fact per file, kebab-case name, in the chosen store (`$ROOT/.claude/memory/` or `~/.claude/memory/`).
-- Frontmatter: `name`, `description` (one-line when-to-use), `type`, and `links:` with bare-basename edges (`supersedes`, `depends_on`, `relates_to`, `contradicts`).
+- Frontmatter: `name`, `description` (one-line when-to-use), `type`, `links:` with bare-basename edges (`supersedes`, `depends_on`, `relates_to`, `contradicts`), and `anchors:` listing the repo-relative code locations the fact describes (`src/auth/`, `src/auth/login.py`, or `src/auth/login.py#authenticate`).
 - Body: the fact, then **Why:** and **How to apply:**. Use absolute dates for anything time-bound (`date +%F`).
 - In the project store, do NOT name the repo in the fact text; it's implicit.
 - Add or refresh the `- [Title](file.md): one-line hook` line in the right `MEMORY.md`. Mark superseded index entries `(superseded)`.
 - Write a `project-overview` fact as the entry point, linked via `relates_to` to the main topic facts.
+
+## Phase 4.5: Build the navigation graph
+
+Regenerate `graph.json` **colocated with the project store's `MEMORY.md`** (`<repo>/.claude/memory/graph.json`) from the project facts (skip if the project store has no facts). This graph is project-level knowledge; the global store gets no graph. Deterministic and idempotent: overwrite on each run, and sort nodes and edges by `id` so diffs stay stable.
+
+1. Scan the project store fact files, and read any global facts referenced by their `links:` (so cross-store edges resolve).
+2. **Nodes:** one `fact` node per fact (`id` = `fact:<basename>`, plus `kind`, `type`, `title`, `file`, `store`). One `code` node per distinct `anchors:` target (`id` = `code:<path>`, with `path` and an `exists` on-disk check). A global fact referenced by a project fact appears as a `fact` stub with `store: global`.
+3. **Edges:** fact→fact from `links:` (resolve bare basenames to node ids; carry the edge `type`); fact→code from `anchors:` (`type: anchors`). A target that doesn't resolve is dangling: flag it in the report, don't fail (same rule as memory edges).
+4. Write `graph.json` beside the project store's `MEMORY.md`:
+
+```json
+{
+  "version": 1,
+  "generated": "<date +%F>",
+  "repo": "<REPO>",
+  "nodes": [
+    {"id": "fact:auth-flow", "kind": "fact", "type": "project", "title": "Auth flow", "file": "auth-flow.md", "store": "project"},
+    {"id": "code:src/auth/login.py", "kind": "code", "path": "src/auth/login.py", "exists": true}
+  ],
+  "edges": [
+    {"from": "fact:auth-flow", "to": "code:src/auth/login.py", "type": "anchors"},
+    {"from": "fact:auth-flow", "to": "fact:session-model", "type": "relates_to"}
+  ]
+}
+```
+
+`graph.json` sits beside the project `MEMORY.md`, inside the memory store, so it's already git-ignored. With `--graph-only`, this is the only phase that runs after Phase 0.
 
 ## Phase 5: Report
 
@@ -114,6 +142,7 @@ One tight summary:
 - Facts written / updated / superseded, per cluster and per store.
 - Sources used, and **sources skipped with the reason** (e.g. "Confluence: no MCP and acli absent").
 - The path to each store's `MEMORY.md`.
+- The `graph.json` path, node and edge counts, and any dangling anchors or edges flagged during the build.
 
 ## Anti-patterns to refuse
 
@@ -123,3 +152,4 @@ One tight summary:
 4. Writing repo-specific detail into the global store, or cross-project facts into the project store.
 5. Editing project code or config. Memory files plus one `.gitignore` line are the only writes.
 6. Persisting secrets or tokens pulled from configs or CI.
+7. Leaving `graph.json` stale or non-deterministic. Rebuild it whenever facts change, and sort nodes/edges so reruns produce clean diffs.
