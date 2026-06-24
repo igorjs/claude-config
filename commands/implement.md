@@ -129,7 +129,7 @@ Every Task prompt MUST include: the full plan content, the specific cycle/step/W
 
 **Without TDD (`--no-tdd`).** For each logical file group: one Sonnet Task implements code + tests together (tests still encode the Gherkin scenarios); run verify; the orchestrator reviews as above.
 
-**Commit after each Work Unit (MUST) — small commits.** After the orchestrator review passes for a WU, stage exactly that WU's files (`git add <the WU's Files list>`), then run `/commit-and-push -y` (auto-confirmed, so it doesn't pause between units). Staging per-WU yields one small commit per deliverable even when WUs ran concurrently and their changes coexist in the working tree. Confirm the WU's files are committed afterwards (they no longer appear in `git status --porcelain`). One coherent commit per WU. If commit fails, retry once, then stop and report.
+**Commit after each Work Unit (MUST): small commits.** After the orchestrator review passes for a WU, stage exactly that WU's files (`git add <the WU's Files list>`), then run `/commit-and-push -y` (auto-confirmed, so it doesn't pause between units). Staging per-WU yields one small commit per deliverable even when WUs ran concurrently and their changes coexist in the working tree. Confirm the WU's files are committed afterwards (they no longer appear in `git status --porcelain`). One coherent commit per WU. If commit fails, retry once, then stop and report.
 
 ## Step 6: Autonomous Mode (`--auto`)
 
