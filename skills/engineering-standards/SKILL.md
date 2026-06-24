@@ -1,6 +1,6 @@
 ---
 name: engineering-standards
-description: Use when working on pull requests, planning testing approach, or thinking about deployment. Covers team engineering process: PR readiness criteria, size limits, review comment conventions, testing requirements (unit/integration/E2E), mocking guidelines, incremental delivery, and deployment flow.
+description: Use when working on pull requests, planning testing approach, or thinking about deployment. Covers the team engineering process across PR readiness criteria, size limits, review comment conventions, testing requirements (unit/integration/E2E), mocking guidelines, incremental delivery, and deployment flow.
 ---
 
 # Engineering Standards
