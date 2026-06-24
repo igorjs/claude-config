@@ -22,7 +22,7 @@ RTK (Rust Token Killer) is active: rewrites commands via PreToolUse hook, 0 over
 
 **Model routing**: Sonnet = default for most coding work (and session default). Haiku = spawned agents on mechanical/formatting/search tasks (3× cheaper); the default for such subagents, escalate only when the task needs more. Opus = deep architectural planning only, and only when Sonnet wasn't enough; keep under 20% of total usage. "Haiku for subagents" is not absolute: escalate to Sonnet for real coding and Opus for architecture (the `Plan` agent, the `superpowers:brainstorming` skill).
 
-**Parallel work**: Fan out independent subtasks via parallel `Agent` calls. For longer orchestration use `TaskCreate`/`TaskList`/`TaskGet`/`TaskOutput`/`TaskUpdate`/`TaskStop`.
+**Parallel work**: Fan out independent subtasks via parallel `Agent` calls. For longer orchestration use `TaskCreate`/`TaskList`/`TaskGet`/`TaskOutput`/`TaskUpdate`/`TaskStop`. Close each agent as soon as its work is done: `TaskStop` it the moment it returns its result, and kill any background `Bash` jobs you started. Don't leave agents idle or running past the work they were spawned for; confirm none are still alive before ending a turn.
 
 **Reading first**: Read surrounding files before writing. Trace full request paths before touching unfamiliar code. Load LSP via ToolSearch for cross-file navigation before falling back to grep.
 
