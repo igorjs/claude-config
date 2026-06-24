@@ -32,8 +32,9 @@ ARGUMENTS:
 Asks one question at a time with a recommended answer. Explores the codebase
 and the project's .claude/memory/ (+ graph.json from /learn-project) to answer
 questions itself before asking you. Walks decision trees, runs a 3-phase
-quality gate, and produces a verified, self-contained plan you can run with
-/implement (or the superpowers:executing-plans skill).
+quality gate, and produces a verified, self-contained plan broken into small
+Work Units (some flagged parallel-safe) that you can run with /implement (or
+the superpowers:executing-plans skill).
 ```
 
 ## Core Rules (MUST)
@@ -140,16 +141,44 @@ Produce a self-contained plan that `/implement` (or the `superpowers:executing-p
 | path/to/file.ts | modify | [what changes and why] |
 | path/to/new.ts  | create | [what it does] |
 
-### Implementation Order
-1. [Step]: [what to do] (depends on: nothing | step N)
-   - Specific changes: [concrete description]
-2. ...
+### Deliverables (Work Units)
+Smallest independently-committable units, in dependency order. One WU = one small commit.
+| WU | Title | Files | Requires | Parallel group | Done When |
+|----|-------|-------|----------|----------------|-----------|
+| WU-0 | [title] | path/to/types.ts | — | — | [observable acceptance] |
+| WU-1 | [title] | path/to/a.ts, path/to/a.test.ts | WU-0 | P1 | ... |
+| WU-2 | [title] | path/to/b.ts, path/to/b.test.ts | WU-0 | P1 | ... |
+| WU-3 | [title] | path/to/index.ts | WU-1, WU-2 | — | ... |
+
+### Parallel Groups
+- **P1** (after WU-0): WU-1, WU-2 — disjoint files, no shared state. Safe to run concurrently by separate agents.
+- **Sequential:** WU-0 first; WU-3 last (needs WU-1 and WU-2).
+
+### Per-Work-Unit Detail
+For each WU, in dependency order:
+
+#### WU-N: [title]
+- **Requires:** [WU-x, WU-y | nothing]
+- **Files:** [exact paths, production + test]
+- **Changes:** [concrete what-to-do]
+- **Test scenarios:** [Gherkin Given/When/Then or TDD cycles this WU satisfies]
+- **Done When:**
+  - [ ] [observable acceptance criterion]
 
 ### Testing Strategy
 - [What to test, which test files, what assertions]
 ```
 
 The Testing Strategy MUST follow the `engineering-standards` skill (test types, isolation, TDD red/green/refactor, no coverage decrease).
+
+**Work Unit sizing (MUST).** Each WU is one coherent commit: small enough to review on its own, following the `engineering-standards` size limits and incremental-delivery guidance. Prefer more, smaller WUs over a few large ones; `/implement` commits each separately. The `Files` column lists production and test files. The `Requires` column is the dependency edge `/implement` topologically orders and cycle-checks.
+
+**Parallel-safety (MUST mark explicitly).** Assign a shared `Parallel group` label only when every member of the group:
+1. has no dependency on another member (none appears in another's `Requires`),
+2. touches a disjoint set of files (no file in two members), and
+3. shares no mutable runtime state and no ordering-sensitive step (e.g. sequential DB migrations).
+
+If any condition fails, leave the WUs ungrouped (they run sequentially). When unsure, leave sequential: a wrong parallel flag makes `/implement` run concurrent agents over the same files and corrupt the working tree. `/implement` re-verifies the flags before dispatching, but the plan should not assert parallelism it can't justify.
 
 ### Step 5: Quality Gate (MUST)
 
@@ -164,6 +193,7 @@ Spawn an **Explore** agent (`subagent_type: Explore`) with the full plan and the
 - The plan is consistent with existing patterns and conventions.
 - Downstream consumers of changed code are identified.
 - The test infrastructure the plan assumes actually exists.
+- The Work Unit dependency graph is acyclic, and each Parallel group's WUs have disjoint files with no dependency on each other (the parallel-safe flags are accurate).
 
 Returns a structured PASS / FAIL / WARN report. **After it returns**, persist any durable gotcha it found as a memory fact. **If any FAILs:** revise the plan and re-run Phase 1 (max 3 iterations). Don't proceed until it passes.
 

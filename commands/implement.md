@@ -33,7 +33,8 @@ TASK SOURCES:
 
 OPTIONS:
   --help     Show this help
-  --auto     Autonomous: execute Work Units in dependency order, commit each, open a PR
+  --auto     Autonomous: execute Work Units in dependency order (parallel-safe ones
+             concurrently), commit each, open a PR
   --no-tdd   Write tests alongside implementation instead of red/green/refactor
   --force    In --auto mode, override quality-gate FAILs (logged)
 
@@ -113,9 +114,13 @@ Max 3 iterations per phase; revise on FAIL. A FAIL blocks execution unless the u
 
 Every Task prompt MUST include: the full plan content, the specific cycle/step/Work Unit, its Gherkin scenarios, the test-structure rules below, the verify command, and grounding rules ("read files before modifying, match existing style, verify imports resolve, don't guess types").
 
+**Execution unit (MUST): the plan's Work Units.** Execute one Work Unit (deliverable) at a time in dependency order; each WU becomes one small commit.
+
+**Parallel dispatch (decide from the plan's flags).** Read the plan's `Parallel Groups`. When a group's dependencies are all complete, dispatch its WUs as concurrent subagents: issue the Task calls in a single message (multiple tool uses) so they run at once. WUs with no group, or whose dependencies aren't done yet, run one at a time. Before dispatching concurrently, VERIFY rather than trust the flags: the group's WUs must have disjoint `Files` lists and no dependency on each other. If the files overlap, or the plan has no parallel annotations (older plans), fall back to sequential; never run two agents that write the same file at once. When running concurrently, scope each WU's verify command to its own test files (the full suite runs in Step 7) so an in-progress sibling WU can't trip another's tests.
+
 **Test structure (from `engineering-standards`):** every test follows Arrange-Act-Assert with `// Arrange` / `// Act` / `// Assert` comments mapping to the scenario's Given/When/Then; one action per test; use parameterised tests (`test.each`, `pytest.mark.parametrize`, table-driven) when scenarios share AAA structure but differ in data.
 
-**With TDD (default).** For each cycle in the plan's execution order:
+**With TDD (default).** For each cycle within a Work Unit (in dependency order):
 
 1. **RED** - Sonnet Task: "Write ONLY the failing tests encoding this Gherkin scenario, AAA-structured. Don't touch production code." Then run the verify command: tests MUST fail (if they pass, the test proves nothing - fix it).
 2. **GREEN** - Sonnet Task: "Write ONLY the minimal implementation to pass." Run verify: tests MUST pass (on failure, spawn a follow-up Task with the error output).
@@ -124,7 +129,7 @@ Every Task prompt MUST include: the full plan content, the specific cycle/step/W
 
 **Without TDD (`--no-tdd`).** For each logical file group: one Sonnet Task implements code + tests together (tests still encode the Gherkin scenarios); run verify; the orchestrator reviews as above.
 
-**Commit after each unit (MUST).** After the orchestrator review passes for a Work Unit or logical section, invoke the `commit-and-push` skill, then confirm `git status --porcelain` is empty. One coherent commit per unit. If commit fails, retry once, then stop and report. (Interactive mode may pause between units; `--auto` does not.)
+**Commit after each Work Unit (MUST) — small commits.** After the orchestrator review passes for a WU, stage exactly that WU's files (`git add <the WU's Files list>`), then run `/commit-and-push -y` (auto-confirmed, so it doesn't pause between units). Staging per-WU yields one small commit per deliverable even when WUs ran concurrently and their changes coexist in the working tree. Confirm the WU's files are committed afterwards (they no longer appear in `git status --porcelain`). One coherent commit per WU. If commit fails, retry once, then stop and report.
 
 ## Step 6: Autonomous Mode (`--auto`)
 
@@ -135,26 +140,26 @@ Every Task prompt MUST include: the full plan content, the specific cycle/step/W
 
 **Cycle check (MUST, before executing).** Verify the Work Unit dependency graph is acyclic:
 
-1. Build the adjacency list from the Ordering table (`WU-N -> [Requires]`).
+1. Build the adjacency list from the plan's Work Units table (`WU-N -> [Requires]`).
 2. Count incoming edges per WU; seed a queue with the zero-incoming WUs.
 3. Process the queue: mark each WU resolved, decrement the count of every WU it enables, enqueue any that hit zero.
 4. If any WU is unresolved, those form a cycle: name them, break the cycle (extract shared logic into a new WU, merge, or reverse an edge), and re-check.
 
 Report the result: `Cycle check: PASS (N WUs resolve in topological order)` or how a detected cycle was fixed.
 
-**Per Work Unit, in order:**
+**Per Work Unit (or parallel batch), in dependency order:**
 
-1. Confirm all WUs in its "Requires" column are done.
-2. Execute it (WU-0 types first; then the RED/GREEN/REFACTOR flow per cycle, or a single Task for `--no-tdd`), delegated to Sonnet.
-3. **Post-WU review:** changes match the WU's spec and file plan; doc comments explain WHY; no files outside the file plan touched.
-4. Invoke `commit-and-push`; confirm `git status --porcelain` is clean.
-5. Mark the WU's "Done When" checkboxes in the plan file.
+1. Confirm all WUs in the "Requires" column are done.
+2. If the next ready WUs share a `Parallel group` (and pass the disjoint-files verification from Step 5), dispatch them as concurrent Sonnet Tasks in one message; otherwise execute the single WU (WU-0 types first; then the RED/GREEN/REFACTOR flow per cycle, or a single Task for `--no-tdd`), delegated to Sonnet.
+3. **Post-WU review:** changes match each WU's spec and file plan; doc comments explain WHY; no files outside the file plan touched.
+4. Commit each WU separately: stage that WU's files, run `/commit-and-push -y`, then confirm its files are committed.
+5. Mark each WU's "Done When" checkboxes in the plan file.
 
 **Error handling:** if a WU fails (verify fails, wrong output, or commit fails) after 3 fix retries, **stop**. Don't continue to dependent WUs. Report the failed WU, the error, and the remaining WUs.
 
 ## Step 7: Validate
 
-Run the project's checks (from Step 3 detection), e.g. type-check, lint, and tests. In `--auto`, run the full suite (not just affected) and, on failure, spawn a Sonnet Task to fix the responsible WU, then amend via `commit-and-push` (max 3 attempts; if still failing, stop and do NOT open a PR).
+Run the project's checks (from Step 3 detection), e.g. type-check, lint, and tests. In `--auto`, run the full suite (not just affected) and, on failure, spawn a Sonnet Task to fix the responsible WU, then amend via `/commit-and-push -ya` (max 3 attempts; if still failing, stop and do NOT open a PR).
 
 - Fix and re-validate until green.
 - **Doc audit:** every new/modified function has a doc comment explaining WHY; add any that are missing.
