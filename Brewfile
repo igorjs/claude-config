@@ -1,16 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
 # SPDX-License-Identifier: MIT
 #
-# Dependencies for this ~/.claude config (hooks, scripts/, shell/, statusline).
+# Dependencies for this ~/.claude config (hooks, shell/, statusline).
 # Install with:  brew bundle --file ~/.claude/Brewfile
 #
 # Not available via Homebrew, install separately:
 #   - claude  (Claude Code)  https://docs.claude.com/en/docs/claude-code  (npm i -g @anthropic-ai/claude-code, or the native installer)
 
-# Core: required by hooks, scripts/, and the cc launcher
-brew "git"          # used everywhere; the sanitize tool and hooks drive git directly
+# Core: required by hooks and the cc launcher
+brew "git"          # used everywhere; hooks drive git directly
 brew "jq"           # JSON parsing in hooks and statusline.sh
-brew "python@3.13"  # hooks and scripts/ tools (requires-python >=3.9)
+brew "python@3.13"  # hooks (Python >=3.9)
 brew "rtk"          # CLI proxy that a PreToolUse hook routes every Bash command through
 
 # Statusline and PR/CI integration

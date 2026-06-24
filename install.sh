@@ -17,7 +17,6 @@ REPO="igorjs/claude-config"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 REF="${CLAUDE_CONFIG_REF:-}"
 SKIP_DEPS=0
-SKIP_VENV=0
 SKIP_SHELL=0
 
 if [ -t 1 ]; then
@@ -45,7 +44,6 @@ Env:
 Flags:
   --ref <ref>    same as CLAUDE_CONFIG_REF
   --skip-deps    skip 'brew bundle'
-  --skip-venv    skip the Python venv for scripts/
   --skip-shell   skip editing ~/.zshrc
   --no-setup     skip all setup steps (install files only)
   -h, --help     show this help
@@ -55,9 +53,8 @@ EOF
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-deps)  SKIP_DEPS=1 ;;
-        --skip-venv)  SKIP_VENV=1 ;;
         --skip-shell) SKIP_SHELL=1 ;;
-        --no-setup)   SKIP_DEPS=1; SKIP_VENV=1; SKIP_SHELL=1 ;;
+        --no-setup)   SKIP_DEPS=1; SKIP_SHELL=1 ;;
         --ref)        shift; REF="${1:-}" ;;
         --ref=*)      REF="${1#--ref=}" ;;
         -h|--help)    print_help; exit 0 ;;
@@ -137,19 +134,6 @@ if [ "$SKIP_DEPS" -eq 0 ]; then
     fi
 fi
 
-if [ "$SKIP_VENV" -eq 0 ]; then
-    if command -v python3 >/dev/null 2>&1; then
-        log "Setting up Python venv for scripts/sanitize-personal-commits"
-        (
-            cd "$CLAUDE_HOME/scripts/sanitize-personal-commits" &&
-            python3 -m venv .venv &&
-            .venv/bin/pip install -q -e .
-        ) </dev/null || warn "venv setup failed; create it manually if you need the sanitize tool"
-    else
-        warn "python3 not found; skipping venv"
-    fi
-fi
-
 if [ "$SKIP_SHELL" -eq 0 ]; then
     ZSHRC="$HOME/.zshrc"
     if [ -f "$ZSHRC" ] && grep -qF 'shell/cc.zsh' "$ZSHRC"; then
@@ -175,6 +159,14 @@ printf '\n'
 printf 'Installed to: %s\n' "$CLAUDE_HOME"
 [ "$backed_up" -eq 1 ] && printf 'Replaced files backed up to: %s\n' "$BACKUP"
 printf '\nNext steps:\n'
-printf '  - Restart your shell, or: source ~/.zshrc\n'
 printf '  - Install the claude CLI if needed: npm i -g @anthropic-ai/claude-code (or the native installer)\n'
-printf '  - For the sanitize tool, set git signing: commit.gpgsign=true and user.signingkey\n'
+
+# Drop into a fresh login shell so the new config is active immediately.
+# Only when interactive and shell setup ran. Reconnect stdin to the terminal
+# (</dev/tty) so this works under `curl ... | bash`, where stdin is the pipe.
+# exec replaces this process, so nothing runs after it.
+if [ "$SKIP_SHELL" -eq 0 ] && [ -t 1 ] && [ -e /dev/tty ]; then
+    USER_SHELL="${SHELL:-/bin/zsh}"
+    log "Reloading your shell ($USER_SHELL)"
+    exec "$USER_SHELL" -l </dev/tty
+fi

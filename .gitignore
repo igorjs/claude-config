@@ -19,7 +19,6 @@
 !/commands/
 !/skills/
 !/hooks/
-!/scripts/
 !/shell/
 !/docs/
 !/output-styles/
@@ -38,6 +37,8 @@
 # (Default /* rule already ignores it; no allowlist entry.)
 
 # --- Re-ignore generated/vendored content inside tracked dirs ---
+# kept local-only, not shipped
+/commands/sanitize-personal-commits.md
 __pycache__/
 *.pyc
 *.pyo

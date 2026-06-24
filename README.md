@@ -7,7 +7,7 @@ My personal [Claude Code](https://docs.claude.com/en/docs/claude-code) setup: a 
 - Claude Code installed, with the `claude` command on your `PATH`.
 - zsh. The `cc` launcher is zsh-only, but you can still run `claude` directly from any shell.
 - `git`, `jq`, `bash`, and a SHA-256 tool (`shasum`).
-- `python3` (3.9+) for the hooks and the tools under `scripts/`.
+- `python3` (3.9+) for the hooks.
 - `rtk` (Rust Token Killer). A PreToolUse hook routes every Bash command through it to cut token use.
 - Optional: `gh` for the statusline's PR and CI status.
 
@@ -22,9 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.s
 ```
 
 It downloads the latest release (or `main` if none yet), backs up anything it
-replaces to `~/.claude/backups/`, runs `brew bundle`, sets up the `scripts/`
-venv, and adds the launcher to your `~/.zshrc`. Pin a version, or install files
-only:
+replaces to `~/.claude/backups/`, runs `brew bundle`, adds the launcher to your `~/.zshrc`, and drops you into a
+fresh shell. Pin a version, or install files only:
 
 ```bash
 CLAUDE_CONFIG_REF=v0.1.0 curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
@@ -94,7 +93,6 @@ Slash commands live in `commands/` and run as `/<name>` inside a session:
 - `/quick-review`: quick single-pass PR review (or the current branch as a self-review) using the `grounding-review` discipline and Conventional Comments, posted as a pending GitHub review for you to submit.
 - `/deep-review`: multi-agent PR review. Spawns a swarm of specialist reviewer subagents (logic, test, security, data, types, perf, plus conditional ones) in parallel, consolidates and fact-checks their findings, and posts a pending GitHub review. Heavier than `/quick-review`; supports `--all`/`--quick`/`--preset`/`--self`.
 - `/address-pr-comments`: walk unresolved PR review comments one at a time, apply a fix or draft a reply, then push and post the replies with the new SHA.
-- `/sanitize-personal-commits`: analyse business-hours commit timestamps, preview the fix, and apply on confirmation. Two stages, so history changes only when you approve.
 - `/scope`: interview-driven planning. Asks one question at a time (with a recommended answer), explores the codebase and `.claude/memory/` itself, runs a 3-phase quality gate (fact-check, adversarial, test review), and saves a verified, self-contained plan to `.claude/plans/` for `/implement` (or the `superpowers:executing-plans` skill).
 - `/adr`: create an Architecture Decision Record (plus an optional execution blueprint) through an investigate -> draft -> quality-gate -> finalise flow. Inlines the templates, captures decisions and rejected alternatives to memory, and saves records to git-ignored `.claude/adr/` as `NNNN-YYYYMMDD-<kebab>.md`.
 - `/implement`: execute an approved `/scope` plan or `/adr` blueprint. Execute-only (it won't design; run `/scope` or `/adr` first); runs on Sonnet, delegating edits to subagents and reviewing each via TDD, committing each unit. With no arguments it lists saved plans to pick from. `--auto` runs Work Units autonomously and opens a PR.
@@ -122,16 +120,12 @@ Two levels, both markdown:
 - `settings.json`: Claude Code settings (hooks, permissions, env, statusline, plugins).
 - `shell/`: the zsh `cc`/`ccd` launcher and its modules (session resume, config-drift detection, transcript retention), plus `worktree.zsh`, the engine for the `cc worktree` subcommand.
 - `hooks/`: SessionStart, PreToolUse, PostToolUse, and other hooks (model auto-detect, read/edit guards, memory reminders).
-- `statusline.sh`: the statusline (git branch, PR/CI status, token usage).
-- `scripts/`: standalone tools. The Python ones need a venv: `cd <dir> && python3 -m venv .venv && .venv/bin/pip install -e .`.
-- `output-styles/`: custom output styles.
+- `statusline.sh`: the statusline (git branch, PR/CI status, token usage).- `output-styles/`: custom output styles.
 
 ## Notes
 
 - Config edits (settings.json or hooks) take effect on a fresh session, not a resumed one. After changing them, run `cc fresh` or plain `claude`. `cc` warns you when a resumed session runs on stale config.
 - The repo tracks the config files, not runtime state. The allowlist `.gitignore` keeps sessions, caches, plugin manifests, and credentials out of git.
-- Commit signing for the `scripts/` tools comes from your global git config (`user.signingkey`, `commit.gpgsign`), not from this repo.
-
 ## License
 
 MIT License. See `LICENSE`.
