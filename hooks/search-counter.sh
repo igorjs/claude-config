@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # PreToolUse hook on Grep/Glob/Read: track exploration breadth. Nudge Claude
 # toward the Explore subagent when the main session is fanning out across
 # many files.

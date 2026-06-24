@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 set -euo pipefail
 
 CMD=$(jq -r '.tool_input.command // ""' -)

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # Cache buster for the Claude Code launcher (sourced by cc.zsh).
 #
 # Clears stale shell-snapshots, per-session config-hashes, and the plugin
