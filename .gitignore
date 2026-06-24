@@ -1,0 +1,44 @@
+# Allowlist strategy: ignore everything, then re-include custom content only.
+# This keeps credentials, session history, caches, and server-pushed state
+# out of git by default. Anything not explicitly un-ignored below stays out.
+
+/*
+
+# --- Custom content to track ---
+!/.gitignore
+!/SYSTEM_PROMPT.md
+!/settings.json
+!/statusline.sh
+!/keybindings.json
+!/CLAUDE.md
+
+!/commands/
+!/skills/
+!/hooks/
+!/scripts/
+!/docs/
+!/memory/
+
+# Override the global excludesfile (~/.gitignore.global), which ignores
+# docs/superpowers/ — we want our specs tracked here.
+# !/docs/superpowers/
+
+# Build artifacts inside vendored/custom hook projects.
+.venv/
+.pytest_cache/
+
+# Plugin/marketplace manifests record what was installed (custom intent);
+# the downloaded plugin payloads do not.
+!/plugins/
+/plugins/*
+!/plugins/config.json
+!/plugins/installed_plugins.json
+!/plugins/known_marketplaces.json
+
+# --- Re-ignore generated/vendored content inside tracked dirs ---
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.bak
+*~

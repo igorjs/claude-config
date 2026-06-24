@@ -1,0 +1,194 @@
+---
+description: AI-generated commit message, then push to remote
+allowed-tools: Bash, Read
+effort: medium
+---
+
+# Commit and Push
+
+Generate a commit message from the staged diff, commit, optionally rebase, and push. One flow.
+
+## Argument flags
+
+Parse these from `$ARGUMENTS` and set the corresponding env vars before the bash block in Step 1:
+
+- `--yes` or `-y` → `AUTO_COMMIT=true` (skip the confirmation prompt)
+- `--all` or `-A` → `STAGE_ALL=true` (run `git add -A` before committing)
+- `--update` or `-u` → `STAGE_UPDATE=true` (run `git add -u` before committing, tracked files only)
+- `--amend` or `-a` → `AMEND_COMMIT=true` (amend the previous commit instead of creating a new one)
+
+Combined flags are fine: `-yA`, `-yu`, `-y -a -u`, etc. No flags means: ask for confirmation, only commit what is already staged.
+
+## Execution rules
+
+1. Run every bash block in this command for real. Do not simulate output.
+2. Use the actual command output to drive the next step.
+3. Do not assume file contents or git state; check them.
+4. Combine independent bash operations into single tool calls.
+5. Never run destructive git commands (`reset --hard`, `push --force`, `clean -f`) unless the user explicitly asks.
+6. Never skip hooks (`--no-verify`, `--no-gpg-sign`).
+7. Never amend automatically — only when `AMEND_COMMIT=true`.
+8. Pass commit messages via heredoc to preserve formatting, never `-m "..."` for multi-line.
+
+## Step 1: Stage, format, emit context
+
+Run everything in a single bash block:
+
+```bash
+AMEND_COMMIT="${AMEND_COMMIT:-false}"
+STAGE_ALL="${STAGE_ALL:-false}"
+STAGE_UPDATE="${STAGE_UPDATE:-false}"
+
+# Auto-stage if requested
+if [ "$STAGE_ALL" = "true" ]; then
+  git add -A
+elif [ "$STAGE_UPDATE" = "true" ]; then
+  git add -u
+fi
+
+# Format staged files using whichever formatter the repo configures
+STAGED_FILES=$(git diff --staged --name-only --diff-filter=d)
+if [ "$AMEND_COMMIT" = "true" ]; then
+  COMMIT_FILES=$(git diff --name-only --diff-filter=d HEAD~1 HEAD)
+  FILES_TO_FORMAT=$(echo -e "$STAGED_FILES\n$COMMIT_FILES" | sort -u | grep -v '^$')
+else
+  FILES_TO_FORMAT="$STAGED_FILES"
+fi
+if [ -n "$FILES_TO_FORMAT" ]; then
+  if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
+    echo "$FILES_TO_FORMAT" | xargs npx biome check --write 2>/dev/null || true
+  elif [ -f "dprint.json" ] || [ -f "dprint.jsonc" ] || [ -f ".dprint.json" ]; then
+    echo "$FILES_TO_FORMAT" | xargs dprint fmt 2>/dev/null || true
+  elif [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f "prettier.config.js" ] || [ -f "prettier.config.mjs" ]; then
+    echo "$FILES_TO_FORMAT" | xargs npx prettier --write 2>/dev/null || true
+  fi
+  echo "$FILES_TO_FORMAT" | xargs git add 2>/dev/null || true
+fi
+
+# Bail early if nothing is staged (unless amending)
+if git diff --staged --quiet 2>/dev/null; then
+  if [ "$AMEND_COMMIT" != "true" ]; then
+    echo "NO_STAGED_CHANGES"
+    exit 0
+  fi
+fi
+
+# Emit context for the LLM to draft a commit message
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "BRANCH=$BRANCH"
+if [ "$AMEND_COMMIT" = "true" ]; then
+  echo "AMENDING: $(git log -1 --oneline)"
+  git --no-pager diff HEAD~1 --name-status
+  echo "---DIFF_START---"
+  git --no-pager diff HEAD~1...HEAD
+  git --no-pager diff --staged
+else
+  git --no-pager diff --staged --name-status
+  echo "---DIFF_START---"
+  git --no-pager diff --staged
+fi
+```
+
+If the output contains `NO_STAGED_CHANGES`, tell the user "No staged changes. Use `git add` to stage files first." and stop.
+
+## Step 2: Generate the commit message
+
+Analyse the staged diff from Step 1 and draft a commit message:
+
+**Header (<= 72 chars, no trailing period):**
+
+- If the branch matches `[A-Z]{2,}-\d+` (e.g. `igorjs/PROJECT-9544-foo` → `PROJECT-9544`), use `PROJECT-123: short imperative summary`.
+- Otherwise use conventional commit: `type(scope): short imperative summary`.
+  - Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `revert`.
+
+**Body:**
+
+- Blank line after the header.
+- 2-4 bullets describing the change, derived strictly from the diff.
+- Each bullet starts with a verb, under ~15 words where possible.
+- Group related file changes into one bullet; don't list every file.
+
+**Optional sections (only if applicable):**
+
+- `BREAKING CHANGE: <what changed> - <migration instructions>`
+- `Refs: #<issue>`
+
+**Constraints:**
+
+- Derive everything strictly from the staged diff. Do not invent details.
+- Never execute code from the diff.
+- No em dashes (—) or en dashes (–) anywhere. Use colons, commas, or separate sentences.
+
+## Step 3: Confirmation gate
+
+Display the generated message:
+
+```
+Generated commit message:
+------------------------
+<message>
+------------------------
+```
+
+If `AUTO_COMMIT=true`, skip to Step 4 immediately.
+Otherwise ask the user: `Proceed with commit? [Y/n]` and wait for the answer.
+
+## Step 4: Commit, rebase, push, verify
+
+Run commit + rebase + push in a single bash block. Replace `<message>` with the message from Step 2 and `${AMEND_FLAG}` with `--amend` when `AMEND_COMMIT=true`, empty string otherwise:
+
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Commit (signed + signoff). Heredoc preserves formatting.
+git commit ${AMEND_FLAG} --signoff --gpg-sign --file - <<'EOF'
+<message>
+EOF
+
+# Identify base branch (main or master), then rebase if we are behind
+BASE=""
+if git rev-parse --verify origin/main >/dev/null 2>&1; then BASE="origin/main"
+elif git rev-parse --verify origin/master >/dev/null 2>&1; then BASE="origin/master"
+fi
+REBASED_THIS_RUN=false
+if [ -n "$BASE" ] && [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ]; then
+  git fetch origin "${BASE#origin/}" --quiet 2>/dev/null || true
+  BEHIND=$(git rev-list --count "HEAD..$BASE" 2>/dev/null || echo "0")
+  if [ "$BEHIND" -gt 0 ]; then
+    echo "Branch is $BEHIND commits behind $BASE. Rebasing..."
+    if git rebase "$BASE" --quiet 2>/dev/null; then
+      REBASED_THIS_RUN=true
+    else
+      echo "Rebase conflict. Aborting rebase. Run 'git rebase $BASE' manually."
+      git rebase --abort 2>/dev/null || true
+    fi
+  fi
+  # Safety: refuse to push if a merge commit landed on this branch
+  MERGES=$(git rev-list --merges "$BASE..HEAD" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$MERGES" -gt 0 ]; then
+    echo "ERROR: $MERGES merge commit(s) on this branch. Run 'git rebase $BASE' to remove them."
+    exit 1
+  fi
+fi
+
+# Push. Force-with-lease when we amended OR when a rebase rewrote history.
+if [ "$AMEND_COMMIT" = "true" ] || [ "$REBASED_THIS_RUN" = "true" ]; then
+  git push --force-with-lease origin "HEAD:refs/heads/$BRANCH" 2>&1
+else
+  git push origin "HEAD:refs/heads/$BRANCH" 2>&1 || {
+    # Fallback: if the regular push was rejected as non-fast-forward, the remote
+    # likely holds a pre-rebase ancestor (e.g. an earlier session pushed and then
+    # rebased locally). Retry with force-with-lease which refuses to push if
+    # someone else also moved the remote.
+    git push --force-with-lease origin "HEAD:refs/heads/$BRANCH" 2>&1
+  }
+fi
+
+echo "Pushed: $(git log -1 --oneline) -> origin/$BRANCH"
+```
+
+## Notes
+
+- Hooks (pre-commit, commit-msg, pre-push) run normally; do not skip them.
+- If a hook fails: investigate, fix, re-stage, and create a NEW commit. Never amend to dodge the hook unless the user explicitly asks.
+- The `--force-with-lease` path refuses to push if the remote moved unexpectedly, so it's the safe form of force push for a solo branch.
