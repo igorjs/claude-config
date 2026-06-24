@@ -98,6 +98,7 @@ Slash commands live in `commands/` and run as `/<name>` inside a session:
 Skills live in `skills/` and load on demand when a task matches:
 
 - `grounding-review`: review discipline. Severity levels, Conventional Comments labels, a proof ladder for different claim types, and a required verification summary.
+- `grounding-research`: investigation discipline. Citation rules (every claim sourced to file:line), structured findings (File + Evidence), a findings digest (hypotheses, confidence, blind spots), and scope boundaries.
 - `writing-style`: voice rules for human-facing prose (PR descriptions, review comments, commit messages). Spartan, active voice, contractions, no dashes or filler.
 - `session-handoff`: a decision-first handoff so the next session or person picks up cold without rereading the whole thread.
 
