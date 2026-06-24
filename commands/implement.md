@@ -1,5 +1,5 @@
 ---
-description: Execute an approved plan or ADR blueprint (from /scope or /adr) on Sonnet, delegating edits to subagents and committing each unit. Execute-only; it does not design or plan.
+description: Execute an approved plan or ADR blueprint (from /scope or /adr) on Sonnet, delegating edits to subagents and committing each unit. Then runs one refinement pass (self quick-review + SOLID/DRY/KISS/YAGNI simplify, re-planned and executed autonomously) and an adversarial review. Execute-only; it does not design new scope.
 allowed-tools: Bash, Read, Grep, Glob, Write, Edit, Task
 argument-hint: "[plan | adr-blueprint | #issue | KEY-123 | ./spec.md | text] [--auto] [--no-tdd] [--force] [--help]"
 model: sonnet
@@ -8,7 +8,7 @@ effort: xhigh
 
 # Implement: Execute a Verified Plan
 
-Execute an approved implementation plan or ADR blueprint. **This command is execute-only: it does NOT design or plan.** Produce the plan with `/scope` (or `/adr` for an architectural decision) first, then implement it here.
+Execute an approved implementation plan or ADR blueprint. **This command is execute-only: it does NOT design or plan new scope.** Produce the plan with `/scope` (or `/adr` for an architectural decision) first, then implement it here. The one exception is the Step 8 refinement pass, which re-plans and applies behaviour-preserving cleanups to the code it just wrote (never new features).
 
 Invoked as `/implement`. The remaining arguments are the task reference and flags.
 
@@ -40,6 +40,10 @@ OPTIONS:
 
 PLANNING: /implement never designs. If the reference isn't a ready plan, it
 stops and tells you to run /scope or /adr first.
+
+REFINEMENT: after implementing, /implement runs one pass (self quick-review +
+SOLID/DRY/KISS/YAGNI simplify, executed autonomously) then an adversarial
+review, before finishing (or opening the PR in --auto).
 ```
 
 ## Execution Rules (MUST)
@@ -87,7 +91,7 @@ Decide whether the resolved reference is a **ready, executable plan**: it names 
 
 - A `/scope` plan or `/adr` blueprint → ready. Proceed.
 - A spec/issue/ticket detailed enough (explicit files, steps, acceptance criteria, tests) → ready. Proceed.
-- **Anything else** (raw text, a thin issue/ticket, a vague request) → **STOP.** Tell the user: "This isn't a ready plan. Run `/scope` (or `/adr` for an architectural decision) to produce one, then `/implement` it." Do NOT generate a plan inline; planning is `/scope` and `/adr`'s job.
+- **Anything else** (raw text, a thin issue/ticket, a vague request) → **STOP.** Tell the user: "This isn't a ready plan. Run `/scope` (or `/adr` for an architectural decision) to produce one, then `/implement` it." Do NOT generate a plan inline; planning is `/scope` and `/adr`'s job. (The Step 8 refinement pass is the sole exception, and only to re-plan refactors of code already written, never new scope.)
 
 ## Step 3: Load Standards and Context
 
@@ -112,7 +116,15 @@ Max 3 iterations per phase; revise on FAIL. A FAIL blocks execution unless the u
 
 **Delegation (MUST):** this command runs on Sonnet. The orchestrating session reads the plan and delegates each implementation chunk to a subagent via the Task tool (`model: "sonnet"`), then reviews the result. Delegation keeps each chunk in a fresh, isolated context (no bleed between cycles) and lets independent chunks run in parallel; the orchestrator spends its turn reviewing, not editing. The deep design reasoning already happened in `/scope` or `/adr`, so execution doesn't need Opus.
 
-Every Task prompt MUST include: the full plan content, the specific cycle/step/Work Unit, its Gherkin scenarios, the test-structure rules below, the verify command, and grounding rules ("read files before modifying, match existing style, verify imports resolve, don't guess types").
+Every Task prompt MUST include: the full plan content, the specific cycle/step/Work Unit, its Gherkin scenarios, the test-structure rules below, the verify command, the design principles below, and grounding rules ("read files before modifying, match existing style, verify imports resolve, don't guess types, apply SOLID/DRY/KISS/YAGNI").
+
+**Design principles (MUST).** Every change, and every Task prompt, applies:
+- **SOLID:** one responsibility per unit, small focused interfaces, depend on abstractions only at real seams (no abstraction without a second caller).
+- **DRY:** factor out genuine duplication once it recurs (rule of three); don't couple unrelated code that only looks alike.
+- **KISS:** the simplest design that passes the tests and reads clearly; fewer moving parts wins.
+- **YAGNI:** build only what the plan requires now. No speculative hooks, flags, config, or generality.
+
+When SOLID's abstraction pulls against KISS/YAGNI, favour the simplest thing that meets the plan. These principles are also the lens for the refinement pass (Step 8).
 
 **Execution unit (MUST): the plan's Work Units.** Execute one Work Unit (deliverable) at a time in dependency order; each WU becomes one small commit.
 
@@ -166,7 +178,32 @@ Run the project's checks (from Step 3 detection), e.g. type-check, lint, and tes
 - **Update status:** change the plan's `Status: Proposed` to `Status: Implemented`.
 - **Memory capture:** record notable errors and their fixes as memory facts.
 
-In `--auto`, after validation passes, open a PR with `gh pr create` (title and body generated from the plan and commit history, written in the `writing-style` voice).
+In `--auto`, after validation passes, continue to the refinement pass (Step 8). The PR opens at the end of Step 9, after the refinement and adversarial review pass, not here.
+
+## Step 8: Refinement Pass (one pass, autonomous)
+
+Once the implementation is green, run ONE refinement pass over the code you just produced. It runs autonomously (no pause, in interactive and `--auto` alike) and executes exactly once per `/implement` invocation; re-validation never re-enters this step. It refines existing code; it does NOT add new scope (YAGNI keeps `/implement` execute-only). Apply the same commit safety as Step 6: if on the default branch, create a feature branch before committing; never commit to the default branch; never force-push.
+
+1. **Self quick-review (local).** Apply the `grounding-review` discipline to the branch diff: severity-classified findings, each with `file:line` evidence. Keep it local; don't post anything. Fix only the findings you hold with HIGH confidence (clear bug, dead code, obvious simplification). Leave low-confidence or speculative findings for the adversarial review (Step 9); don't guess.
+2. **Simplify & refactor analysis.** Read the changed files through the Design principles (SOLID, DRY, KISS, YAGNI). List concrete, behaviour-preserving changes: collapse needless indirection, delete dead or speculative code, dedupe real repetition, flatten tangled control flow, tighten names. Skip anything that changes behaviour or adds abstraction with no second caller.
+3. **Re-plan.** Fold the high-confidence fixes and accepted simplifications into a small set of refinement Work Units (same shape as a `/scope` plan: `Files`, `Requires`, `Done When`). Scope is limited to code already written. If a finding implies new feature work, record it as a follow-up; don't build it.
+4. **Execute autonomously.** Run the refinement Work Units like `--auto`: TDD where it applies, behaviour-preserving refactors keep tests green, commit each WU with `/commit-and-push -y`. Then re-run the validation checks from Step 7 (type-check/lint/test only, not the status flip or the continue-to-Step-8 handoff); they MUST stay green.
+
+Run this pass once. Don't loop: Step 9 is the backstop for whatever remains.
+
+## Step 9: Adversarial Review (MUST)
+
+This reviews the IMPLEMENTED work, not the plan: Step 4's adversarial review ran before execution against the plan; this one runs after, against the diff. Spawn an adversarial reviewer (`general-purpose` agent, under the `grounding-review` discipline) with the full branch diff, the plan, and the refinement notes. Its job is to break the work, not bless it:
+
+- **Correctness:** bugs, off-by-one, unhandled errors, regressions the tests miss.
+- **Behaviour drift:** did any simplification or refactor change observable behaviour?
+- **Principles:** remaining SOLID/DRY/KISS/YAGNI violations, leftover speculative code, needless abstraction.
+- **Scope:** anything built beyond the plan; anything the plan required but is missing.
+- **Tests:** weak assertions, missing boundary or regression coverage, flakiness.
+
+It returns severity-classified findings with `file:line` evidence and a fix per finding. Apply the fixes you hold with HIGH confidence plus every blocking correctness/security finding; re-run the Step 7 validation checks after applying them. Surface the rest as known follow-ups: don't silently drop them, and don't start a second refinement loop.
+
+**Finish.** In interactive mode, report the applied fixes and unresolved follow-ups to the user; leave the PR to them. In `--auto`, once the Step 7 validation checks are green after the adversarial fixes, open the PR with `gh pr create` (title and body from the plan and commit history, in the `writing-style` voice), listing the unresolved non-blocking findings under a "Follow-ups" heading.
 
 ## Decision Rules
 
@@ -179,6 +216,9 @@ In `--auto`, after validation passes, open a PR with `gh pr create` (title and b
 | Requires a DB migration | Execute the migration as its own unit with a rollback note |
 | Validation fails | Fix and re-validate before reporting done |
 | `--auto`: WU fails after 3 retries | Stop; report the failed WU and the remaining WUs |
-| `--auto`: full validation fails after 3 fixes | Stop; report; do NOT open a PR |
+| `--auto`: validation fails after 3 fixes (including Step 8/9 re-validations) | Stop; report; do NOT open a PR |
 | `--auto`: on the default branch | Create a feature branch before the first commit |
 | `--auto`: commit/push fails | Stop; report (auth, hooks, etc.) |
+| Refinement (Step 8) implies new feature scope | Record as a follow-up; don't build it (YAGNI) |
+| Adversarial review (Step 9) finds a blocking issue | Fix it, re-validate, then finish; report non-blocking findings as follow-ups |
+| Refinement or adversarial fix would change behaviour | Don't fold it into the refactor; treat it as a separate fix and re-validate |
