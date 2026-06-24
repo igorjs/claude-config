@@ -1,0 +1,230 @@
+---
+description: Create architecture decision records (ADRs) with an optional execution blueprint, fact-checked through a 3-phase quality gate and saved to .claude/adr/.
+allowed-tools: Bash, Read, Grep, Glob, Write, Task
+argument-hint: "<topic> [--record-only] [--list] [--help]"
+model: opus
+effort: xhigh
+---
+
+# ADR: Decision Records with Execution Blueprints
+
+Create a formal Architecture Decision Record (ADR) with an optional execution blueprint: an archivable decision record paired with an actionable implementation plan. The blueprint is its implementation plan.
+
+Invoked as `/adr`. The remaining arguments are the topic and flags.
+
+## Defaults
+
+No external config; these are fixed:
+
+- **Document:** Architecture Decision Record (ADR).
+- **Directory:** `.claude/adr/`, git-ignored, created on first use (same pattern as memory and plans).
+- **Filename:** `NNNN-{YYYYMMDD}-{kebab-title}.md` (zero-padded sequence + today's date + kebab title).
+- **Companion files:** blueprint at `{base}-blueprint.md`, quality report at `{base}-quality.md`, same directory.
+
+## Help
+
+If the arguments contain `--help`, print this and stop:
+
+```
+/adr - Architecture Decision Records with execution blueprints
+
+USAGE:
+  /adr <topic> [options]
+
+OPTIONS:
+  --help         Show this help
+  --record-only  Write the decision record without an execution blueprint
+  --list         List existing ADRs in .claude/adr/
+
+NOTE: every ADR should have a companion execution blueprint. Use --record-only
+only when the blueprint comes in a follow-up session.
+
+EXAMPLES:
+  /adr "replace polling with WebSocket push"
+  /adr "split monolith order service"
+  /adr --record-only "deprecate v1 API"
+  /adr --list
+
+Records save to .claude/adr/ (git-ignored) as NNNN-{YYYYMMDD}-{kebab}.md.
+```
+
+## Execution Rules (MUST)
+
+1. **Execute every bash block for real.** Don't simulate, summarise, or predict output; use the actual output to drive the next step.
+2. **No caching.** Every invocation is a fresh run. Don't reuse results from prior conversations or training data.
+3. **No skipping.** Execute steps in order. The only exception: steps guarded by a flag the user didn't set.
+4. **No assumptions.** Don't guess file contents, command output, or environment state. Run the command and read the result.
+5. **Follow the command's gates, not your own.** If a step says "ask the user", ask. If it doesn't, don't add a confirmation gate.
+6. **Show real data.** Tables and reports are populated from actual command output, never placeholders.
+
+## Flag Handling
+
+- `--list`: list existing records in `.claude/adr/` (filenames + titles). If none exist, say so. Then stop.
+- `--record-only`: run Stages 1-2 but skip the execution blueprint.
+
+If no flags match, run the full workflow with the remaining text as the topic.
+
+## Step 0: Load Writing Discipline (MUST, before any drafting)
+
+Invoke the `writing-style` skill (voice, banned words, prose rules) and the `grounding-research` skill (evidence and citations). Every ADR title, context line, alternative, and rejection note MUST follow them. ADR-specific rules on top:
+
+- **Data over opinion.** Support claims with file paths, metrics, query counts, or concrete scenarios.
+- **Spartan and informative.** Every sentence adds information. Cut sentences that only add emphasis.
+
+## Stage 1: Investigate (mandatory)
+
+Build understanding before writing. Skipping this produces records that don't survive contact with the codebase.
+
+1. **Read existing records** in `.claude/adr/` (if it exists) for precedent and numbering.
+2. **Explore the codebase** with Read/Glob/Grep: modules and services affected by the topic, database schemas and migration history (if relevant), test patterns, configuration and deployment.
+3. **Read the project memory:** `.claude/memory/MEMORY.md`, the relevant fact files, and `graph.json` (from `/learn-project`). This is the durable record of decisions, conventions, gotchas, and patterns. Use it to inform Considered Alternatives (reference a named pattern where one applies) and to avoid re-proposing something already rejected.
+4. **Summarise findings to the user:** what's relevant to the topic, which areas are affected, existing patterns/constraints, and applicable patterns from memory (with brief rationale).
+
+**Knowledge capture:** when exploration reveals a durable convention or gotcha, write it as a project memory fact now (per the system prompt's Memory section).
+
+Wait for the user to acknowledge before Stage 2.
+
+## Stage 2: Draft
+
+### Determine the filename
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+DIR="$ROOT/.claude/adr"
+mkdir -p "$DIR"
+grep -qxF '.claude/adr/' "$ROOT/.gitignore" 2>/dev/null || printf '.claude/adr/\n' >> "$ROOT/.gitignore"
+N=$(ls "$DIR" 2>/dev/null | grep -oE '^[0-9]{4}' | sort -rn | head -1)
+NEXT=$(printf '%04d' $(( 10#${N:-0} + 1 )))
+echo "Next number: $NEXT   Date: $(date +%Y%m%d)"
+```
+
+Filename: `{NEXT}-{YYYYMMDD}-{kebab-title}.md` in `$DIR`. Write the record directly there (never to a temp/local scratch path).
+
+### Decision Record
+
+Write `{DIR}/{filename}` with Status **Proposed**, using this structure:
+
+```markdown
+# ADR-{NNNN}: {Title}
+
+- **Status:** Proposed
+- **Date created:** {YYYY-MM-DD}
+- **Date modified:** {YYYY-MM-DD}
+
+## Context
+{Evidence-grounded background: file paths, metrics, concrete observations from Stage 1.}
+
+## Decision Drivers
+- {driver referencing concrete evidence}
+
+## Considered Alternatives
+### {Alternative} (effort: S | M | L | XL)
+- {how it works}
+- Trade-offs: {pros and cons}
+
+## Decision
+{The chosen alternative and why. State explicitly why each other alternative was rejected.}
+
+## Consequences
+- {positive, negative, and follow-up consequences}
+
+## Architecture Diagrams
+{Mermaid: a current-state diagram and a proposed-state diagram, plus sequence/state/ER diagrams as warranted.}
+```
+
+Requirements:
+
+- At least 2 alternatives beyond the status quo (3 total minimum), each with a genuine effort estimate (S/M/L/XL) and real trade-offs.
+- Decision drivers reference concrete evidence from Stage 1.
+- The Decision section gives the reasoning for rejecting each alternative.
+- **Diagrams:** keep them readable, label nodes meaningfully, pick the right type (flowchart for components, sequence for interactions, state for lifecycles, ER for schemas). Always include current-state and proposed-state.
+
+**Knowledge capture:** record the decision and each rejected alternative as memory facts (so future planning, including `/scope`, doesn't re-propose them).
+
+Present the draft. Revise in place on feedback. Repeat until the user explicitly approves.
+
+### Execution Blueprint (skip if `--record-only`)
+
+After the record is approved, write `{DIR}/{base}-blueprint.md` (`{base}` = filename without extension):
+
+```markdown
+# {ADR-NNNN} Execution Blueprint
+
+- **Parent ADR:** {path to the decision record}
+
+## System Snapshot
+{Real paths discovered in Stage 1: modules, entry points, schemas, tests.}
+
+## Work Units
+### WU1: {name}
+- Goal: {independently verifiable outcome}
+- Files: {real path | action | purpose}
+- Verification: {literal, runnable command(s)}
+- Tests: {Gherkin scenarios or TDD cycles, per engineering-standards}
+
+## Ordering
+| Work unit | Depends on | Parallel with |
+|---|---|---|
+| WU1 | none | WU2 |
+
+## Dependency Graph
+{Mermaid graph generated from the Ordering table.}
+```
+
+Requirements: each work unit independently verifiable; file plans reference real existing paths; verification commands are literal (no placeholders); the Ordering table shows dependencies and parallelism; the test plan follows `engineering-standards`.
+
+Present the blueprint. Revise in place until the user explicitly approves.
+
+## Stage 3: Quality Gate (MUST)
+
+After the user approves all drafts, run the three-phase gate before finalising. Don't skip it; don't finalise until it passes or the user explicitly overrides. Criteria are inline; spawn one agent per phase, sequentially, via the Task tool.
+
+### Phase 1: Fact-Check
+
+Spawn an **Explore** agent (`subagent_type: Explore`) with the record (and blueprint, if any), working under the `grounding-research` discipline (cite `file:line`, tag `[unverified]`). It verifies: file paths in the system snapshot and file plans exist; function/type signatures referenced are accurate; the plan is consistent with existing patterns; memory gotchas related to the topic are accounted for. Returns a PASS/FAIL/WARN report. After it returns, persist any durable gotcha as a memory fact. **FAIL → revise and re-run (max 3).**
+
+### Phase 2: Adversarial Review
+
+Spawn a **general-purpose** agent with the record, blueprint, and the Phase 1 report. It challenges the decision: simpler alternatives, scope creep, over-engineering, missing error paths, blast radius, contradictions with the fact-check. After it returns, record any rejected simpler alternative (with reasoning) as a memory fact. **FAIL → revise and re-run (max 3).**
+
+### Phase 3: Test Review
+
+Spawn an **Explore** agent with the blueprint's test plan and the Phase 1-2 reports. For a `--record-only` ADR with no blueprint tests, this is typically `PASS: N/A (no test plan)`. For a blueprint with Gherkin scenarios or TDD cycles, evaluate them against `engineering-standards`: regression-pinning, flakiness, boundary coverage, test independence, mock quality, assertion strength. **FAIL → revise the test plan and re-run (max 3).**
+
+### Structural Checks
+
+- [ ] Every Considered Alternatives entry has effort and trade-off detail.
+- [ ] The Decision section explains why each rejected alternative was rejected.
+- [ ] All work units (if a blueprint exists) have file plans with real paths.
+- [ ] All verification commands are literal (no `<placeholders>`).
+- [ ] No unresolved questions remain (or each is explicitly deferred to a named work unit).
+
+### Gate Result
+
+Present the result. FAILs block finalisation; WARNs are informational. If the user explicitly overrides a FAIL, record the override in the quality report file: `Quality gate override: proceeding despite FAIL on <check> because <reason>`.
+
+```
+## Quality Gate Result
+
+**Fact-Check:**        PASS (N/N)
+**Adversarial Review:** PASS (N/N)
+**Test Review:**       PASS (N/N)  [or N/A]
+[or: BLOCKED: N FAILs, M WARNs]
+```
+
+## Stage 4: Finalise
+
+After the gate passes (or is overridden):
+
+1. **Update the record:** Status Proposed → Accepted, and bump Date modified to today.
+2. **Verify the blueprint** (if any): its Parent ADR reference points to the correct record path.
+3. **Save the quality report** to `{DIR}/{base}-quality.md`.
+4. **Report** the final file paths to the user.
+
+### Kebab Title Convention
+
+Lowercase all words, replace spaces and special characters with hyphens, collapse consecutive hyphens. "Replace Polling with WebSocket Push" → `replace-polling-with-websocket-push`.
+
+## Implementing the Blueprint
+
+The blueprint is a self-contained implementation plan. Implement it with your flow of choice: today via the `superpowers:executing-plans` skill, or by handing `{DIR}/{base}-blueprint.md` to a fresh implementation session.

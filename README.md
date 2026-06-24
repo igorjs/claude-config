@@ -92,6 +92,7 @@ Slash commands live in `commands/` and run as `/<name>` inside a session:
 - `/address-pr-comments`: walk unresolved PR review comments one at a time, apply a fix or draft a reply, then push and post the replies with the new SHA.
 - `/sanitize-personal-commits`: analyse business-hours commit timestamps, preview the fix, and apply on confirmation. Two stages, so history changes only when you approve.
 - `/scope`: interview-driven planning. Asks one question at a time (with a recommended answer), explores the codebase and `.claude/memory/` itself, runs a 3-phase quality gate (fact-check, adversarial, test review), and saves a verified, self-contained plan to `.claude/plans/` (implement it today via `superpowers:executing-plans`, or hand the file to a fresh session).
+- `/adr`: create an Architecture Decision Record (plus an optional execution blueprint) through an investigate -> draft -> quality-gate -> finalise flow. Inlines the templates, captures decisions and rejected alternatives to memory, and saves records to git-ignored `.claude/adr/` as `NNNN-YYYYMMDD-<kebab>.md`.
 - `/learn-project`: analyse the current repo (git history, code structure, PRs, and JIRA/Confluence when reachable) and store distilled topics as memory facts, routed per-project or global, plus a `graph.json` of the memory graph for navigation. Read-only on the repo; confirms before writing.
 
 ## Skills
