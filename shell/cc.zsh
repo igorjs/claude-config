@@ -66,5 +66,5 @@ unset _cc_mod
 # cc/ccd both dispatch through _claude. Each carries the custom system prompt;
 # ccd adds --dangerously-skip-permissions. (These are the leading flags _claude
 # splits off and passes through to `command claude`.)
-cc()  { _claude --system-prompt-file "$HOME/.claude/SYSTEM_PROMPT.md" "$@"; local rc=$?; _cc_prune; return $rc; }
-ccd() { _claude --dangerously-skip-permissions --system-prompt-file "$HOME/.claude/SYSTEM_PROMPT.md" "$@"; local rc=$?; _cc_prune; return $rc; }
+cc()  { _claude --system-prompt-file "$HOME/.claude/prompts/SYSTEM_PROMPT.md" "$@"; local rc=$?; _cc_prune; return $rc; }
+ccd() { _claude --dangerously-skip-permissions --system-prompt-file "$HOME/.claude/prompts/SYSTEM_PROMPT.md" "$@"; local rc=$?; _cc_prune; return $rc; }

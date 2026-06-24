@@ -6,7 +6,7 @@
 
 # --- Custom content to track ---
 !/.gitignore
-!/SYSTEM_PROMPT.md
+!/prompts/
 !/settings.json
 !/statusline.sh
 !/keybindings.json
