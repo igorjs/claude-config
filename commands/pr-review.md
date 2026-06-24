@@ -71,15 +71,19 @@ PR_AUTHOR=$(gh pr view "$PR_NUMBER" --json author -q .author.login)
 ME=$(gh api /user -q .login)
 SELF_REVIEW=$([ "$PR_AUTHOR" = "$ME" ] && echo true || echo false)
 
+REVIEW_JSON="/tmp/$REPO/pr-review-$PR_NUMBER.json"
+mkdir -p "$(dirname "$REVIEW_JSON")"
+
 echo "PR: $REPO#$PR_NUMBER"
 echo "Head SHA: $HEAD_SHA"
 echo "Author: $PR_AUTHOR (self-review: $SELF_REVIEW)"
+echo "Review JSON: $REVIEW_JSON"
 
 gh pr view "$PR_NUMBER"
 gh pr diff "$PR_NUMBER"
 ```
 
-Capture: `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`. You'll need them for the API calls in Step 4.
+Capture: `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. You'll need them for the API calls in Step 4. `REVIEW_JSON` resolves to `/tmp/<org>/<repo>/pr-review-<number>.json`, and its directory is created here so the Step 4 write succeeds.
 
 ## Step 2: Read changed files at HEAD
 
@@ -127,7 +131,7 @@ Severity classification, label choice, blocking-vs-non-blocking, and the categor
 
 Wait for response. If `none` or `skip`, stop here.
 
-Build a JSON payload at `/tmp/pr-review-<number>.json`:
+Build a JSON payload at `$REVIEW_JSON` (`/tmp/<org>/<repo>/pr-review-<number>.json`; the directory was created in Step 1):
 
 ```json
 {
@@ -144,7 +148,7 @@ Build a JSON payload at `/tmp/pr-review-<number>.json`:
 Create the pending review:
 
 ```bash
-gh api -X POST /repos/$REPO/pulls/$PR_NUMBER/reviews --input /tmp/pr-review-$PR_NUMBER.json --jq '{id, state, html_url}'
+gh api -X POST /repos/$REPO/pulls/$PR_NUMBER/reviews --input "$REVIEW_JSON" --jq '{id, state, html_url}'
 ```
 
 Confirm `state: PENDING` and capture the review id + html_url. Show the user the link.
