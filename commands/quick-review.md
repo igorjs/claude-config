@@ -1,12 +1,12 @@
 ---
-description: Review a PR (or current branch self-review) using grounding-review discipline + Conventional Comments. Posts findings as a pending GitHub review for human submit.
+description: Quick single-pass PR review (or current branch self-review) using grounding-review discipline + Conventional Comments. Posts findings as a pending GitHub review for human submit.
 allowed-tools: Bash, Read, Grep, Glob, Write
 argument-hint: "[PR number]"
 model: opus
 effort: max
 ---
 
-# PR Review
+# Quick Review
 
 Review a pull request with grounding-review discipline. Output a structured report, then orchestrate posting findings as inline comments on a **pending** GitHub review so the user picks the submit verb.
 
@@ -71,7 +71,7 @@ PR_AUTHOR=$(gh pr view "$PR_NUMBER" --json author -q .author.login)
 ME=$(gh api /user -q .login)
 SELF_REVIEW=$([ "$PR_AUTHOR" = "$ME" ] && echo true || echo false)
 
-REVIEW_JSON="/tmp/$REPO/pr-review-$PR_NUMBER.json"
+REVIEW_JSON="/tmp/$REPO/quick-review-$PR_NUMBER.json"
 mkdir -p "$(dirname "$REVIEW_JSON")"
 
 echo "PR: $REPO#$PR_NUMBER"
@@ -83,7 +83,7 @@ gh pr view "$PR_NUMBER"
 gh pr diff "$PR_NUMBER"
 ```
 
-Capture: `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. You'll need them for the API calls in Step 4. `REVIEW_JSON` resolves to `/tmp/<org>/<repo>/pr-review-<number>.json`, and its directory is created here so the Step 4 write succeeds.
+Capture: `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. You'll need them for the API calls in Step 4. `REVIEW_JSON` resolves to `/tmp/<org>/<repo>/quick-review-<number>.json`, and its directory is created here so the Step 4 write succeeds.
 
 ## Step 2: Read changed files at HEAD
 
@@ -131,7 +131,7 @@ Severity classification, label choice, blocking-vs-non-blocking, and the categor
 
 Wait for response. If `none` or `skip`, stop here.
 
-Build a JSON payload at `$REVIEW_JSON` (`/tmp/<org>/<repo>/pr-review-<number>.json`; the directory was created in Step 1):
+Build a JSON payload at `$REVIEW_JSON` (`/tmp/<org>/<repo>/quick-review-<number>.json`; the directory was created in Step 1):
 
 ```json
 {
