@@ -1,8 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
 # SPDX-License-Identifier: MIT
 #
-# worktree.zsh — `worktree <branch> [env-base-folder]` creates/enters a git
-# worktree with smart defaults, then cd's the current shell into it.
+# worktree.zsh — engine for the `cc worktree <branch>` / `ccd worktree`
+# subcommand: creates/enters a git worktree with smart defaults, then cd's the
+# current shell into it. Not exposed as a standalone command (the entry point is
+# the private `_cc_worktree`, called only by the _claude dispatcher).
 #
 # Sourced into the interactive shell (via cc.zsh), so it uses `return` not
 # `exit`, never sets global shell options, and restores the auto-stash through
@@ -18,10 +20,10 @@
 _wt_die() { print -u2 -- "worktree: $1"; return "${2:-1}"; }
 
 _wt_help() {
-    print -- 'worktree <branch> [env-base-folder] [--ai-resolve]'
-    print -- '  Create or enter a git worktree for <branch> and cd into it.'
+    print -- 'cc worktree <branch> [env-base-folder]   (also ccd worktree)'
+    print -- '  Create or enter a git worktree for <branch> and start a session in it.'
     print -- '  Folder name is the JIRA key in the branch, else the branch leaf.'
-    print -- '  --ai-resolve   let Claude resolve rebase conflicts (default: abort)'
+    print -- '  Claude auto-resolves rebase conflicts (this path always sets --ai-resolve).'
 }
 
 # md5 (macOS) | md5sum (Linux) -> short stable hash of a string
@@ -372,8 +374,9 @@ _wt_maybe_rebase() {
     fi
 }
 
-# Public entry point. Parses flags, then runs the body with stash-restore.
-worktree() {
+# Private entry point (called only by the _claude dispatcher's worktree case).
+# Parses flags, then runs the body with stash-restore.
+_cc_worktree() {
     emulate -L zsh 2>/dev/null || true
     setopt local_options no_nomatch 2>/dev/null || true
 

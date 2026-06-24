@@ -71,7 +71,7 @@ cc worktree <branch>   # create/enter a git worktree off the base branch, then s
 
 `cc` loads the system prompt, picks a model, and prunes old transcripts (keeps the newest 5 by default).
 
-`worktree <branch>` creates or enters a git worktree for the branch off the project's base branch: it names the folder after the JIRA key in the branch (e.g. `PROJECT-1234-foo` → `PROJECT-1234/`), copies `.env`, reuses `node_modules` via hardlinks, sets upstream, runs a daily background cleanup of merged or >30-day-old worktrees, and cd's you in. `cc worktree <branch>` (or `ccd worktree`) does the same and then starts a session in the new worktree, always passing `--ai-resolve` so Claude resolves any rebase conflicts. Standalone, conflict resolution is opt-in via `worktree --ai-resolve <branch>`.
+`cc worktree <branch>` (or `ccd worktree <branch>`) creates or enters a git worktree for the branch off the project's base branch, then starts a session in it. It names the folder after the JIRA key in the branch (e.g. `PROJECT-1234-foo` → `PROJECT-1234/`), copies `.env`, reuses `node_modules` via hardlinks, sets upstream, cd's you in, and runs a daily background cleanup of merged or >30-day-old worktrees. Claude auto-resolves any rebase conflicts on the way (the subcommand always passes `--ai-resolve`). It's only available through `cc`/`ccd`, not as a standalone command.
 
 ## System prompt
 
@@ -120,7 +120,7 @@ Two levels, both markdown:
 ## Layout
 
 - `settings.json`: Claude Code settings (hooks, permissions, env, statusline, plugins).
-- `shell/`: the zsh `cc`/`ccd` launcher and its modules (session resume, config-drift detection, transcript retention), plus `worktree.zsh` for git-worktree creation.
+- `shell/`: the zsh `cc`/`ccd` launcher and its modules (session resume, config-drift detection, transcript retention), plus `worktree.zsh`, the engine for the `cc worktree` subcommand.
 - `hooks/`: SessionStart, PreToolUse, PostToolUse, and other hooks (model auto-detect, read/edit guards, memory reminders).
 - `statusline.sh`: the statusline (git branch, PR/CI status, token usage).
 - `scripts/`: standalone tools. The Python ones need a venv: `cd <dir> && python3 -m venv .venv && .venv/bin/pip install -e .`.

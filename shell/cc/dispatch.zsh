@@ -91,7 +91,7 @@ _claude() {
             # it. This path always passes --ai-resolve, so Claude resolves any
             # rebase conflicts. worktree() cd's us into the new tree; recursing
             # into _claude with just the leading flags does the normal launch.
-            worktree --ai-resolve "$@" || return $?
+            _cc_worktree --ai-resolve "$@" || return $?
             _claude "${flags[@]}"
             return $?
             ;;
