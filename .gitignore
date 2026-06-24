@@ -8,6 +8,7 @@
 !/.gitignore
 !/README.md
 !/LICENSE
+!/Brewfile
 !/prompts/
 !/settings.json
 !/statusline.sh

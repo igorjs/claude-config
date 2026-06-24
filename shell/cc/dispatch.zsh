@@ -22,11 +22,33 @@ _claude() {
     # Separate leading flags from positional args. The subcommand must be the
     # first non-flag token so `ccd clean` (which expands to
     # `_claude --dangerously-skip-permissions clean`) works.
+    #
+    # Value-taking options (e.g. `--system-prompt-file PATH`, injected by cc/ccd)
+    # must consume their value too. Otherwise the value is mistaken for the
+    # subcommand and the `-n <name>` added below is swallowed as the option's
+    # argument — turning `--system-prompt-file PATH -n name` into
+    # `--system-prompt-file -n` (claude then looks for a prompt file named "-n").
+    # The `--opt=value` form is self-contained, so it is matched first.
     local -a flags
     flags=()
+    local -A _cc_takes_value
+    _cc_takes_value=(
+        --system-prompt-file 1 --system-prompt 1
+        --append-system-prompt 1 --append-system-prompt-file 1
+        --settings 1 --setting-sources 1 --model 1 --permission-mode 1
+        --name 1 -n 1
+    )
     while (( $# > 0 )); do
         case "$1" in
-            -*) flags+=("$1"); shift ;;
+            -*=*) flags+=("$1"); shift ;;
+            -*)
+                flags+=("$1")
+                if [[ -n "${_cc_takes_value[$1]:-}" ]] && (( $# >= 2 )); then
+                    flags+=("$2"); shift 2
+                else
+                    shift
+                fi
+                ;;
             *)  break ;;
         esac
     done
