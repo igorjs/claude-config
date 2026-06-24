@@ -145,13 +145,13 @@ Produce a self-contained plan that `/implement` (or the `superpowers:executing-p
 Smallest independently-committable units, in dependency order. One WU = one small commit.
 | WU | Title | Files | Requires | Parallel group | Done When |
 |----|-------|-------|----------|----------------|-----------|
-| WU-0 | [title] | path/to/types.ts | — | — | [observable acceptance] |
+| WU-0 | [title] | path/to/types.ts | none | none | [observable acceptance] |
 | WU-1 | [title] | path/to/a.ts, path/to/a.test.ts | WU-0 | P1 | ... |
 | WU-2 | [title] | path/to/b.ts, path/to/b.test.ts | WU-0 | P1 | ... |
-| WU-3 | [title] | path/to/index.ts | WU-1, WU-2 | — | ... |
+| WU-3 | [title] | path/to/index.ts | WU-1, WU-2 | none | ... |
 
 ### Parallel Groups
-- **P1** (after WU-0): WU-1, WU-2 — disjoint files, no shared state. Safe to run concurrently by separate agents.
+- **P1** (after WU-0): WU-1 and WU-2. Disjoint files, no shared state, safe to run concurrently by separate agents.
 - **Sequential:** WU-0 first; WU-3 last (needs WU-1 and WU-2).
 
 ### Per-Work-Unit Detail

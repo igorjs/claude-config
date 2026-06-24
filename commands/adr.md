@@ -156,22 +156,31 @@ After the record is approved, write `{DIR}/{base}-blueprint.md` (`{base}` = file
 {Real paths discovered in Stage 1: modules, entry points, schemas, tests.}
 
 ## Work Units
-### WU1: {name}
+### WU-0: {name}
+- Requires: {WU-x, WU-y | nothing}
 - Goal: {independently verifiable outcome}
-- Files: {real path | action | purpose}
+- Files: {real path | action | purpose} (production + test)
 - Verification: {literal, runnable command(s)}
 - Tests: {Gherkin scenarios or TDD cycles, per engineering-standards}
+- Done When:
+  - [ ] {observable acceptance criterion}
 
 ## Ordering
-| Work unit | Depends on | Parallel with |
+| WU | Requires | Parallel group |
 |---|---|---|
-| WU1 | none | WU2 |
+| WU-0 | none | none |
+| WU-1 | WU-0 | P1 |
+| WU-2 | WU-0 | P1 |
+
+## Parallel Groups
+- P1 (after WU-0): WU-1 and WU-2. Disjoint files, no shared state, safe to run concurrently by separate agents.
+- Sequential: WU-0 first.
 
 ## Dependency Graph
 {Mermaid graph generated from the Ordering table.}
 ```
 
-Requirements: each work unit independently verifiable; file plans reference real existing paths; verification commands are literal (no placeholders); the Ordering table shows dependencies and parallelism; the test plan follows `engineering-standards`.
+Requirements: each work unit independently verifiable and committable as one small unit; file plans reference real existing paths; verification commands are literal (no placeholders); the Ordering table shows each WU's `Requires` and `Parallel group`; the test plan follows `engineering-standards`. Mark a shared `Parallel group` only when its members have no dependency on each other, touch disjoint files, and share no mutable state or ordering-sensitive step; otherwise leave them sequential. `/implement` consumes this blueprint exactly like a `/scope` plan: one small commit per WU, parallel-safe WUs dispatched to concurrent agents.
 
 Present the blueprint. Revise in place until the user explicitly approves.
 
@@ -181,7 +190,7 @@ After the user approves all drafts, run the three-phase gate before finalising. 
 
 ### Phase 1: Fact-Check
 
-Spawn an **Explore** agent (`subagent_type: Explore`) with the record (and blueprint, if any), working under the `grounding-research` discipline (cite `file:line`, tag `[unverified]`). It verifies: file paths in the system snapshot and file plans exist; function/type signatures referenced are accurate; the plan is consistent with existing patterns; memory gotchas related to the topic are accounted for. Returns a PASS/FAIL/WARN report. After it returns, persist any durable gotcha as a memory fact. **FAIL → revise and re-run (max 3).**
+Spawn an **Explore** agent (`subagent_type: Explore`) with the record (and blueprint, if any), working under the `grounding-research` discipline (cite `file:line`, tag `[unverified]`). It verifies: file paths in the system snapshot and file plans exist; function/type signatures referenced are accurate; the plan is consistent with existing patterns; the work unit dependency graph is acyclic and each Parallel group's WUs have disjoint files with no dependency on each other; memory gotchas related to the topic are accounted for. Returns a PASS/FAIL/WARN report. After it returns, persist any durable gotcha as a memory fact. **FAIL → revise and re-run (max 3).**
 
 ### Phase 2: Adversarial Review
 
