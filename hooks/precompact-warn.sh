@@ -22,6 +22,7 @@ claude_msg="The conversation just hit auto-compaction. From here on, your view o
   1. Finish the immediate sub-task you're on (do not abandon mid-edit).
   2. Then proactively suggest the user run /wrap-up (or commit + /clear) before starting any new task.
   3. Don't expand scope. Don't re-explore — work from what you remember now.
+  4. If you learned any durable facts this session not yet in ~/.claude/memory/, persist them now per the Memory section of the system prompt before they are summarized away.
 This is the cheapest moment to end the session cleanly."
 
 # Combine both into one JSON object.

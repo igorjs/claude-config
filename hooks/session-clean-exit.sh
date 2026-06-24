@@ -18,6 +18,10 @@ reason="$(hi_field '.reason')"
 if [[ -n "$reason" && "$reason" != "other" ]]; then
   : > "$dir/clean-exit" 2>/dev/null
   printf '%s\n' "$reason" > "$dir/clean-exit"
+
+  # SessionEnd only (Stop has no .reason): last-chance memory flush reminder.
+  jq -cn --arg msg "If you learned any durable facts this session not yet in ~/.claude/memory/, persist them now per the Memory section of the system prompt." '
+    { hookSpecificOutput: { hookEventName: "SessionEnd", additionalContext: $msg } }' 2>/dev/null
 fi
 
 exit 0

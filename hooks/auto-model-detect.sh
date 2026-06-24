@@ -40,6 +40,8 @@ Recommended subagents (invoke with the Agent tool, passing `model: "opus"`):
   - superpowers:brainstorming — ideation / requirements before any code
 
 If the prompt is actually small-scope (e.g. quick choice between two named options), staying on Sonnet inline is fine. Use judgment.
+
+Routing policy: Opus only when Sonnet wasn't enough — keep Opus under 20% of total usage. Routine/mechanical/formatting/search subagents default to Haiku (3x cheaper); escalate to Sonnet for real coding.
 MSG
 )"
 
