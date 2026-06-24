@@ -1,9 +1,0 @@
-[project]
-name = "git-push-guard"
-version = "0.1.0"
-description = "Rewrite unpushed git commit timestamps that fall in business hours."
-requires-python = ">=3.9"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
