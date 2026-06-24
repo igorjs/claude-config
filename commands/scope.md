@@ -129,6 +129,8 @@ Produce a self-contained plan that `/implement` (or the `superpowers:executing-p
 ```
 ## Implementation Plan
 
+**Status:** Proposed | **Date:** <YYYY-MM-DD>
+
 ### Architecture
 [High-level design. Reference specific files and functions found during research.]
 

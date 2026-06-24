@@ -1,7 +1,7 @@
 ---
 description: Execute an approved plan or ADR blueprint (from /scope or /adr) on Sonnet, delegating edits to subagents and committing each unit. Execute-only; it does not design or plan.
 allowed-tools: Bash, Read, Grep, Glob, Write, Edit, Task
-argument-hint: "<plan-file | adr-blueprint | #issue | KEY-123 | ./spec.md | text> [--auto] [--no-tdd] [--force] [--help]"
+argument-hint: "[plan | adr-blueprint | #issue | KEY-123 | ./spec.md | text] [--auto] [--no-tdd] [--force] [--help]"
 model: sonnet
 effort: xhigh
 ---
@@ -20,6 +20,7 @@ If the arguments contain `--help`, print this and stop:
 /implement - Execute an approved plan or ADR blueprint
 
 USAGE:
+  /implement                  List saved plans and pick one to execute
   /implement <task-reference> [options]
 
 TASK SOURCES:
@@ -51,7 +52,25 @@ stops and tells you to run /scope or /adr first.
 
 ## Step 1: Resolve the Task Reference
 
-Resolve `$ARGUMENTS` (minus flags) by format:
+**No task reference given (empty, or only flags)?** Run the Plan Picker:
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+found=0
+for f in "$ROOT"/.claude/plans/*.md "$ROOT"/.claude/adr/*-blueprint.md; do
+  [ -f "$f" ] || continue
+  case "$f" in *-quality.md) continue;; esac
+  found=1
+  title=$(grep -m1 '^#\{1,\} ' "$f" | sed 's/^#\{1,\} *//')
+  st=$(grep -m1 -iE 'status' "$f" | grep -ioE 'proposed|accepted|implemented' | head -1)
+  printf '%s\t[%s]\t%s\n' "${f#"$ROOT"/}" "${st:-?}" "${title:-untitled}"
+done
+[ "$found" = 0 ] && echo "NO_PLANS"
+```
+
+Present the rows as a numbered menu (index, status, title, path), listing unexecuted entries (`Proposed`/`Accepted`) first and `Implemented` last. Ask the user to pick a number, or to preview one first (Read it, show the summary, then re-ask). If the output is `NO_PLANS`, stop and tell the user to run `/scope` or `/adr` to create one. Use the chosen file as the task reference, then continue below. Any flags passed (e.g. `--auto`) still apply to the chosen plan.
+
+Otherwise, resolve `$ARGUMENTS` (minus flags) by format:
 
 - **Plan/blueprint file** (`.claude/plans/*.md` or `.claude/adr/*-blueprint.md`, or any path ending `.md`): Read it. This is the plan.
 - **GitHub issue** (`#N`, or a github.com issue URL): `gh issue view <N> --json title,body,url,labels,state`.
