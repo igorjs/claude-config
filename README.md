@@ -88,7 +88,8 @@ Edit this file to change how every `cc` session behaves. Changes apply on the ne
 Slash commands live in `commands/` and run as `/<name>` inside a session:
 
 - `/commit-and-push`: write a commit message from the staged diff, commit it signed, optionally rebase onto the base branch, then push.
-- `/pr-review`: review a PR (or the current branch as a self-review) using the `grounding-review` discipline and Conventional Comments, posted as a pending GitHub review for you to submit.
+- `/quick-review`: quick single-pass PR review (or the current branch as a self-review) using the `grounding-review` discipline and Conventional Comments, posted as a pending GitHub review for you to submit.
+- `/deep-review`: multi-agent PR review. Spawns a swarm of specialist reviewer subagents (logic, test, security, data, types, perf, plus conditional ones) in parallel, consolidates and fact-checks their findings, and posts a pending GitHub review. Heavier than `/quick-review`; supports `--all`/`--quick`/`--preset`/`--self`.
 - `/address-pr-comments`: walk unresolved PR review comments one at a time, apply a fix or draft a reply, then push and post the replies with the new SHA.
 - `/sanitize-personal-commits`: analyse business-hours commit timestamps, preview the fix, and apply on confirmation. Two stages, so history changes only when you approve.
 - `/scope`: interview-driven planning. Asks one question at a time (with a recommended answer), explores the codebase and `.claude/memory/` itself, runs a 3-phase quality gate (fact-check, adversarial, test review), and saves a verified, self-contained plan to `.claude/plans/` for `/implement` (or the `superpowers:executing-plans` skill).
