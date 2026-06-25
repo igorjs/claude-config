@@ -1,4 +1,4 @@
-# Contributing to claude-config
+# Contributing to pragmatic-claude
 
 This project follows the standard igorjs contribution rules. Start here:
 

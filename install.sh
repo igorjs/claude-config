@@ -2,20 +2,20 @@
 # SPDX-FileCopyrightText: 2026 Igor Santos
 # SPDX-License-Identifier: MIT
 #
-# Installer for igorjs/claude-config — drops the tracked config into ~/.claude
+# Installer for igorjs/pragmatic-claude — drops the tracked config into ~/.claude
 # without a git clone. Quick start:
 #
-#   curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/igorjs/pragmatic-claude/main/install.sh | bash
 #
-# Source of truth: the latest GitHub release by default, or CLAUDE_CONFIG_REF
+# Source of truth: the latest GitHub release by default, or PRAGMATIC_CLAUDE_REF
 # (any tag/branch/sha). Falls back to the main branch when no release exists.
 # Existing tracked files are backed up before being replaced; runtime state
 # (sessions/, projects/, history, plugins/) is never touched.
 set -euo pipefail
 
-REPO="igorjs/claude-config"
+REPO="igorjs/pragmatic-claude"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-REF="${CLAUDE_CONFIG_REF:-}"
+REF="${PRAGMATIC_CLAUDE_REF:-}"
 SKIP_DEPS=0
 SKIP_SHELL=0
 
@@ -30,19 +30,19 @@ die()  { printf '%serror:%s %s\n' "$C_R" "$C_0" "$*" >&2; exit 1; }
 
 print_help() {
     cat <<'EOF'
-Install igorjs/claude-config into ~/.claude (no git clone).
+Install igorjs/pragmatic-claude into ~/.claude (no git clone).
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/igorjs/pragmatic-claude/main/install.sh | bash
   curl -fsSL .../install.sh | bash -s -- [flags]
   ./install.sh [flags]
 
 Env:
-  CLAUDE_CONFIG_REF=<tag|branch|sha>  source ref (default: latest release, else main)
+  PRAGMATIC_CLAUDE_REF=<tag|branch|sha>  source ref (default: latest release, else main)
   CLAUDE_HOME=<dir>                   install target (default: $HOME/.claude)
 
 Flags:
-  --ref <ref>    same as CLAUDE_CONFIG_REF
+  --ref <ref>    same as PRAGMATIC_CLAUDE_REF
   --skip-deps    skip 'brew bundle'
   --skip-shell   skip editing ~/.zshrc
   --no-setup     skip all setup steps (install files only)
@@ -92,7 +92,7 @@ log "Downloading $url"
 curl -fsSL "$url" -o "$TMP/config.tar.gz" || die "download failed: $url"
 tar -xzf "$TMP/config.tar.gz" -C "$TMP" || die "could not extract archive"
 
-SRC="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d -name '*claude-config*' | head -1)"
+SRC="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d -name '*pragmatic-claude*' | head -1)"
 [ -n "$SRC" ] || SRC="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [ -d "$SRC" ] || die "could not locate extracted source directory"
 
@@ -147,7 +147,7 @@ if [ "$SKIP_SHELL" -eq 0 ]; then
         # Single quotes are intentional: write the literal $HOME so zsh expands
         # it at runtime, not the install-time value.
         # shellcheck disable=SC2016
-        printf '\n# claude-config launchers (cc/ccd)\nsource "$HOME/.claude/shell/cc.zsh"\n' >> "$ZSHRC"
+        printf '\n# pragmatic-claude launchers (cc/ccd)\nsource "$HOME/.claude/shell/cc.zsh"\n' >> "$ZSHRC"
         log "Added cc.zsh source to your .zshrc${zshrc_backup}"
     fi
 fi

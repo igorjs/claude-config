@@ -1,4 +1,4 @@
-# claude-config
+# pragmatic-claude
 
 My personal [Claude Code](https://docs.claude.com/en/docs/claude-code) setup: a zsh launcher, session hooks, a custom system prompt, skills, slash commands, and a statusline. It lives at `~/.claude` and replaces the default config directory.
 
@@ -18,7 +18,7 @@ The config lives at `~/.claude` (every path inside is hardcoded to `$HOME/.claud
 Quickest, no clone:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/igorjs/pragmatic-claude/main/install.sh | bash
 ```
 
 It downloads the latest release (or `main` if none yet), backs up anything it
@@ -26,14 +26,14 @@ replaces to `~/.claude/backups/`, runs `brew bundle`, adds the launcher to your 
 fresh shell. Pin a version, or install files only:
 
 ```bash
-CLAUDE_CONFIG_REF=v0.1.0 curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash
-curl -fsSL https://raw.githubusercontent.com/igorjs/claude-config/main/install.sh | bash -s -- --no-setup
+PRAGMATIC_CLAUDE_REF=v0.1.0 curl -fsSL https://raw.githubusercontent.com/igorjs/pragmatic-claude/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/igorjs/pragmatic-claude/main/install.sh | bash -s -- --no-setup
 ```
 
 Prefer git? Clone onto a fresh machine:
 
 ```bash
-git clone https://github.com/igorjs/claude-config.git ~/.claude
+git clone https://github.com/igorjs/pragmatic-claude.git ~/.claude
 ```
 
 Already have a `~/.claude` that Claude Code created? Adopt it in place. The `.gitignore` is an allowlist, so your sessions, caches, and other runtime files stay ignored and untouched.
@@ -41,7 +41,7 @@ Already have a `~/.claude` that Claude Code created? Adopt it in place. The `.gi
 ```bash
 cd ~/.claude
 git init
-git remote add origin https://github.com/igorjs/claude-config.git
+git remote add origin https://github.com/igorjs/pragmatic-claude.git
 git fetch origin
 git checkout -f main
 ```
