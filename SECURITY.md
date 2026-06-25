@@ -6,7 +6,7 @@
 
 To report a vulnerability, use one of:
 
-- **GitHub Security Advisories**: [Report a vulnerability](https://github.com/igorjs/claude-config/security/advisories/new)
+- **GitHub Security Advisories**: [Report a vulnerability](https://github.com/igorjs/pragmatic-claude/security/advisories/new)
 - **Email**: **oss@mail.igorjs.io**
 
 Include:
