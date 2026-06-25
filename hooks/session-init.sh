@@ -81,6 +81,30 @@ $_mem_ctx"
   fi
 fi
 
+# ── Auto-learn nudge ──
+# If the previous session in this repo did substantive work, session-clean-exit
+# left a flag in ~/.claude/runtime/to-learn/. Surface a one-time nudge to run
+# /learn-project, then consume the flag. Stale flags are pruned so the dir
+# doesn't grow. Disable with AUTO_LEARN_NUDGE=0.
+if [[ "${AUTO_LEARN_NUDGE:-1}" != "0" && -n "$_repo_root" ]]; then
+  _qdir="$RUNTIME_ROOT/to-learn"
+  [[ -d "$_qdir" ]] && find "$_qdir" -name '*.json' -type f -mtime "+${AUTO_LEARN_MAX_AGE_DAYS:-14}" -delete 2>/dev/null
+  _learn_slug="$(printf '%s' "$_repo_root" | sed 's/[^A-Za-z0-9_.-]/_/g')"
+  _learn_flag="$_qdir/$_learn_slug.json"
+  if [[ -f "$_learn_flag" ]]; then
+    _learn_edits="$(jq -r '.edits // 0' "$_learn_flag" 2>/dev/null)"
+    _learn_nudge="A previous session in this repo made ${_learn_edits:-some} edits, so project memory may be stale. Consider running /learn-project to refresh it, or /learn-project --stage to queue candidate facts for review."
+    if [[ -n "$extra_context" ]]; then
+      extra_context="$extra_context
+
+$_learn_nudge"
+    else
+      extra_context="$_learn_nudge"
+    fi
+    rm -f "$_learn_flag" 2>/dev/null
+  fi
+fi
+
 # Emit a single SessionStart payload if there is anything to say.
 if [[ -n "$system_message" || -n "$extra_context" ]]; then
   jq -cn --arg um "$system_message" --arg cm "$extra_context" '
