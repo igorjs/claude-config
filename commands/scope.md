@@ -1,7 +1,7 @@
 ---
 description: Interview-driven planning session with deep requirements gathering that produces a verified implementation plan.
 allowed-tools: Bash, Read, Grep, Glob, Write, Task
-argument-hint: "[topic | ./prompt.md] [--help]"
+argument-hint: "[topic | ./prompt.md] [--auto] [--help]"
 model: opus
 effort: xhigh
 ---
@@ -29,8 +29,14 @@ ARGUMENTS:
   read the file content and use it as the topic seed. Prepare detailed
   prompts in a file instead of typing them inline.
 
+OPTIONS:
+  --auto   Autonomous: skip the interview, self-answer every decision with the
+           recommended answer (recorded as assumptions), run the quality gate,
+           and save the plan without pauses. Stops after saving; run /implement.
+  --help   Show this help
+
 Asks one question at a time with a recommended answer. Explores the codebase
-and the project's .claude/memory/ (+ graph.json from /learn-project) to answer
+and both memory stores (global ~/.claude/memory/ + project .claude/memory/, plus graph.json from /learn-project) to answer
 questions itself before asking you. Walks decision trees, runs a 3-phase
 quality gate, and produces a verified, self-contained plan broken into small
 Work Units (some flagged parallel-safe) that you can run with /implement (or
@@ -38,6 +44,8 @@ the superpowers:executing-plans skill).
 ```
 
 ## Core Rules (MUST)
+
+**Autonomous mode (`--auto`) replaces the interview.** When `--auto` is set, ask the user nothing: resolve every branch yourself by taking the answer you'd otherwise recommend, record it in an **Assumptions** list, and run straight through to saving the plan without the Step 3 and Step 6 confirmation pauses. Rules 4 and 6 still hold (walk the full decision tree; never write code), and the quality gate (Step 5) still runs. See **Autonomous Mode (`--auto`)** below. The rules below otherwise describe the default interactive mode.
 
 1. **Ask ONE question at a time.** Not two, not a batch. One question, wait for the answer, then the next. The only exception: the very first message, where you present initial context and the first question.
 2. **Provide your recommended answer with every question.** Format: "Question? **I'd recommend X** because Y." The user can accept, reject, or modify. This keeps the conversation moving instead of stalling on open-ended questions.
@@ -55,19 +63,29 @@ If the argument looks like a file path (starts with `./`, `../`, `/`, or `~`, or
 
 This happens before Step 1. The loaded content replaces the raw argument as the topic seed.
 
-**When a file path is provided, the file IS the context (MUST).** Do NOT explore the repo beyond what the file explicitly references. Skip the general exploration in Step 1 (no git log, no TODO scan, no manifest scan, no memory scan). Read ONLY the file, then go straight to your first question based on its content. If the file references specific source files, modules, or APIs by name, you may read those, but do NOT go looking for things the file does not mention.
+**When a file path is provided, the file IS the context (MUST).** Do NOT explore the repo beyond what the file explicitly references. Skip the general repo exploration in Step 1 (no git log, no TODO scan, no manifest scan), but STILL read both memory stores (global `~/.claude/memory/` and the project `.claude/memory/`) — memory is always consulted. Beyond memory, read ONLY the file, then go straight to your first question based on its content. If the file references specific source files, modules, or APIs by name, you may read those, but do NOT go looking for things the file does not mention.
 
 **Ignore `.gitignore`d files (MUST).** Don't read files matched by `.gitignore` (PDFs, build artefacts, binaries, vendor dirs, `.env`), even if the prompt file mentions them. Only read tracked source files.
+
+## Autonomous Mode (`--auto`)
+
+Enable when `--auto` appears in the arguments; strip it (like `--help`) before resolving the topic seed. `--auto` runs the entire scope without the interview, then stops after saving the plan — it never writes code (run `/implement` to build it). Concretely:
+
+- **No questions.** For every decision Step 2 would ask, take the answer you would have recommended ("I'd recommend X because Y") and proceed. Still do the Step 1 research first — explore the codebase and both memory stores, since a preference or convention there may override your default choice.
+- **Record assumptions.** Every self-made decision goes into an **Assumptions** list with its rationale, so the user can audit what was chosen for them. When you're genuinely split on a decision, record it as an `OPEN` assumption (with the leading option and why) rather than silently picking.
+- **Skip the confirmation gates.** Do not pause at Step 3 ("Does this capture everything?") or Step 6 ("Does this plan look right?"). Fold the Design Summary and the Assumptions list into the saved plan instead.
+- **Quality gate still runs (Step 5).** It needs no user input. If a phase still FAILs after its 3 iterations, STOP: do not save; report the failing checks and the assumptions made. No user is present to override a FAIL in `--auto`.
+- **Save and report (Step 7).** On a passing gate, save the plan and quality report, persist the accepted decisions as memory, then tell the user the paths, the assumptions made (flag any `OPEN` ones), and to run `/implement` when ready.
 
 ## How It Works
 
 ### Step 1: Initial Context Gathering
 
-**Skip this step if a file path was provided** (see Argument Resolution). Go straight to Step 2 with the file content as your context.
+**Skip this step if a file path was provided** (see Argument Resolution), EXCEPT still read both memory stores (the first bullet below) — memory is always consulted. Then go to Step 2 with the file content as your context.
 
 With a plain-text topic seed, silently research before asking anything:
 
-- Read the project memory if present: `.claude/memory/MEMORY.md`, the relevant fact files, and `graph.json` (built by `/learn-project`). This is the durable project knowledge: architecture, conventions, decisions, gotchas.
+- Read BOTH memory stores (per the system prompt's Memory section): the global store `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and, if present, the project store `.claude/memory/MEMORY.md` plus its `graph.json` (built by `/learn-project`). Load the relevant fact files from each. This is the durable knowledge: architecture, conventions, decisions, gotchas. Honor the typed edges; when a project fact contradicts a global one it wins for this repo, and surface any conflict bearing on the plan rather than silently choosing.
 - Check recent git log for context.
 - If the topic seed mentions files, modules, or features, read them.
 - Read the README and whatever build manifest exists (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) for project context.
@@ -82,6 +100,8 @@ I looked at [what you explored] and here's what I understand so far:
 
 First question: [question]? **I'd recommend [X]** because [reason from codebase].
 ```
+
+**In `--auto`:** gather the same context but ask nothing — go straight to Step 2 and self-resolve the decision tree, recording each choice as an assumption.
 
 ### Step 2: Decision Tree Interview
 
@@ -121,7 +141,7 @@ When all branches are resolved, summarise:
 - [anything flagged but accepted]
 ```
 
-Ask: **"Does this capture everything? Anything to change?"** Do NOT proceed until confirmed.
+Ask: **"Does this capture everything? Anything to change?"** Do NOT proceed until confirmed. **In `--auto`, skip this gate:** fold the summary and the Assumptions list into the plan and proceed.
 
 ### Step 4: Generate Implementation Plan
 
@@ -238,6 +258,8 @@ WARNs are shown for awareness but do not block.
 
 ### Step 6: User Approval
 
+**In `--auto`, skip this step:** there is no approval pause. After the gate passes, go straight to Step 7; a gate FAIL stops the run (Step 5) instead of prompting for an override. The rest of this step is the default interactive flow.
+
 After the gate passes, present the full plan and the gate reports. Ask:
 
 **"Quality gate passed. Does this plan look right? Anything to change before I save it?"**
@@ -266,6 +288,7 @@ Then:
    - "Saved to `.claude/plans/<topic-slug>.md`"
    - "Implement it when ready: `/implement .claude/plans/<topic-slug>.md` (or the `superpowers:executing-plans` skill)."
    - "Want to capture the key decisions in an ADR (`/adr`)?" (if architectural)
+   - **In `--auto`:** also list the **Assumptions** made (especially any `OPEN` ones) so the user can audit the autonomous choices before running `/implement`.
 
 ## Adapting to Complexity
 

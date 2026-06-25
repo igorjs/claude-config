@@ -96,7 +96,7 @@ Decide whether the resolved reference is a **ready, executable plan**: it names 
 ## Step 3: Load Standards and Context
 
 - Invoke the `engineering-standards` skill (testing requirements, mocking, PR readiness, deployment), the `grounding-research` skill (verify before asserting), and `writing-style` (for any prose, e.g. commit messages and the PR body).
-- Read the project memory: `.claude/memory/MEMORY.md`, relevant fact files, and `graph.json` (from `/learn-project`) for conventions, gotchas, and prior decisions.
+- Read BOTH memory stores (per the system prompt's Memory section): the global store `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and, if present, the project store `.claude/memory/MEMORY.md` plus its `graph.json` (from `/learn-project`), loading the relevant fact files from each, for conventions, gotchas, and prior decisions. Honor the typed edges; a project fact that contradicts a global one wins for this repo, and surface any conflict bearing on the work rather than silently choosing.
 - Read every file the plan references before changing it (grounding).
 - **Detect the stack** to know the verify commands: check `tsconfig.json` / `package.json` (TS/JS), `pyproject.toml` / `setup.py` (Python), `go.mod` (Go), `Cargo.toml` (Rust). Derive the type-check / lint / test commands from what you find.
 

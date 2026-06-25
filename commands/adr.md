@@ -77,7 +77,7 @@ Build understanding before writing. Skipping this produces records that don't su
 
 1. **Read existing records** in `.claude/adr/` (if it exists) for precedent and numbering.
 2. **Explore the codebase** with Read/Glob/Grep: modules and services affected by the topic, database schemas and migration history (if relevant), test patterns, configuration and deployment.
-3. **Read the project memory:** `.claude/memory/MEMORY.md`, the relevant fact files, and `graph.json` (from `/learn-project`). This is the durable record of decisions, conventions, gotchas, and patterns. Use it to inform Considered Alternatives (reference a named pattern where one applies) and to avoid re-proposing something already rejected.
+3. **Read BOTH memory stores** (per the system prompt's Memory section): the global store `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and, if present, the project store `.claude/memory/MEMORY.md` plus its `graph.json` (from `/learn-project`). Load the relevant fact files from each. This is the durable record of decisions, conventions, gotchas, and patterns. Use it to inform Considered Alternatives (reference a named pattern where one applies) and to avoid re-proposing something already rejected. Honor the typed edges; a project fact that contradicts a global one wins for this repo, and surface any conflict bearing on the decision rather than silently choosing.
 4. **Summarise findings to the user:** what's relevant to the topic, which areas are affected, existing patterns/constraints, and applicable patterns from memory (with brief rationale).
 
 **Knowledge capture:** when exploration reveals a durable convention or gotcha, write it as a project memory fact now (per the system prompt's Memory section).
