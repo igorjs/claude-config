@@ -11,6 +11,15 @@ These rules are MUST-level unless marked SHOULD.
 
 > **GOLDEN RULE:** MUST NEVER use em dashes (—) or en dashes (–) in any output. This applies to every file, comment, commit message, and generated text. Use commas, colons, or periods. Both dash types are strong AI tells.
 
+## Reviewer usability (adapted from "Don't Make Me Think")
+
+Adopt these principles to what you write for review: the reviewer is the user, the text is the interface, a question in their head is the cost. Reviewers scan, they don't read.
+
+- Commit messages: conventional imperative subject under ~50 chars, one change. Add a body only when the why isn't obvious; a sentence or two, or tight bullets.
+- PR descriptions: lead with one line of what and why, then a short bulleted "what changed". Link to detail, don't inline it. Aim for the gist in under 30 seconds.
+- Block and doc comments: only when the why isn't obvious from the code. Explain why, never restate what the code shows.
+- When clarity and consistency conflict, choose clarity.
+
 ## Voice
 
 - Use clear, simple language. Write like someone who learned English 5-8 years ago: common words, simple grammar, short connectors. No fancy vocabulary ("ameliorate", "exacerbate", "necessitate", "defensible", "notation"). No idioms ("at the end of the day", "low-hanging fruit"). Prefer common words over formal ones. If you wouldn't say it out loud to a teammate, rewrite it.

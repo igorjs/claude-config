@@ -24,6 +24,8 @@ A PR MUST meet these criteria before requesting review:
 - PRs SHOULD be under 500 changed lines (additions + deletions).
 - PRs MUST NOT exceed 1000 changed lines without explicit justification.
 - Large changes SHOULD be split into logical units (e.g., one PR for the data layer, another for the service layer).
+- One concern per PR. A refactor, a feature, and its docs are separate PRs, not one. Unrelated changes in a single diff force the reviewer to track several things at once.
+- Treat the diff as an interface the reviewer reads (adapted from Krug's "Don't Make Me Think"): the smaller and more focused it is, the less they have to figure out. When work is large, ship a sequence of small PRs.
 
 ### Review Comments
 
