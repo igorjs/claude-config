@@ -137,5 +137,6 @@ All fact filenames use kebab-case. Commands enforce this at write time.
 ## See also
 
 - [Plan and Implement](01-plan-and-implement.md): implementing a blueprint or plan.
-- [Internals: Model Routing and Memory](06-internals-memory-and-routing.md): the memory graph internals and edge resolution.
-- [Docs index](index.md).
+- [The memory system](../concepts/02-memory-system.md): the rationale and full design behind memory.
+- [Internals: Model Routing and Memory](../internals/02-model-routing-and-memory.md): the memory graph internals and edge resolution.
+- [Docs index](../index.md).

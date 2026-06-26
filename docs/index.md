@@ -1,20 +1,33 @@
 # pragmatic-claude docs
 
-How to use and extend this Claude Code config. The [README](../README.md) covers install plus a one-line summary of every command and skill. These pages go deeper: real workflows end to end, how to add your own commands, skills, and hooks, and how the launcher, hooks, memory, and model routing work underneath.
+How to use and extend this Claude Code config. The [README](../README.md) covers install plus a short summary of every command and skill. These pages go deeper: why the config is shaped the way it is, real workflows end to end, how to add your own pieces, and how the machine works underneath.
 
 Read them in order, or jump to what you need.
 
-## Workflows
+## Concepts
 
-- [01 Plan and Implement](01-plan-and-implement.md): design a feature with `/scope`, then build it with `/implement`.
-- [02 Review and PR Flow](02-review-and-pr-flow.md): commit, review with `/quick-review` or `/deep-review`, then work through feedback with `/address-pr-comments`.
-- [03 Decisions and Memory](03-decisions-and-memory.md): record architectural choices with `/adr`, and build durable project knowledge with `/learn-project`.
+Why the foundations work the way they do.
 
-## Extending
+- [The system prompt](concepts/01-system-prompt.md): what the custom prompt defines, and why a custom prompt behaves better than the default.
+- [The memory system](concepts/02-memory-system.md): the two-level fact store, typed edges, and how it feeds the commands.
 
-- [04 Authoring Commands, Skills, and Hooks](04-authoring-commands-skills-hooks.md): add your own behavior, with copy-paste templates grounded in the real formats.
+## Guides
+
+Task-oriented workflows.
+
+- [Plan and implement](guides/01-plan-and-implement.md): design with `/scope`, build with `/implement`.
+- [Review and PR flow](guides/02-review-and-pr-flow.md): commit, review, and work through feedback.
+- [Decisions and memory](guides/03-decisions-and-memory.md): record choices with `/adr`, build project knowledge with `/learn-project`.
+
+## Authoring
+
+Extend the config.
+
+- [Commands, skills, and hooks](authoring/01-commands-skills-hooks.md): templates for each extension point.
 
 ## Internals
 
-- [05 Internals: Launcher and Hooks](05-internals-launcher-and-hooks.md): the `cc` launcher, the worktree engine, and the hook lifecycle.
-- [06 Internals: Model Routing and Memory](06-internals-memory-and-routing.md): how the session model gets picked, and the two-level memory graph.
+How the machine works.
+
+- [Launcher and hooks](internals/01-launcher-and-hooks.md): the `cc` launcher, the worktree engine, and the hook lifecycle.
+- [Model routing and memory](internals/02-model-routing-and-memory.md): how the session model is chosen, and the memory graph mechanics.

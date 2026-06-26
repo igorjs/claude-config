@@ -47,7 +47,7 @@ Fans out a swarm of specialist reviewer subagents in parallel (logic, test, secu
 
 Available presets: `security`, `architecture`, `data`, `docs`, `thorough`.
 
-In `auto` mode (the default), conditional reviewers (architecture, migration, docs, complexity, and others) activate based on what the diff contains. The orchestrating session runs on Opus; the specialist subagents run on Sonnet. See [06-internals-memory-and-routing.md](06-internals-memory-and-routing.md) for why.
+In `auto` mode (the default), conditional reviewers (architecture, migration, docs, complexity, and others) activate based on what the diff contains. The orchestrating session runs on Opus; the specialist subagents run on Sonnet. See [06-internals-memory-and-routing.md](../internals/02-model-routing-and-memory.md) for why.
 
 Use `/quick-review` for everyday PRs. Reach for `/deep-review` when the change is large, risky, or touches multiple layers.
 
@@ -107,5 +107,5 @@ That's the full loop. Run `/quick-review` again after a round of feedback if you
 ## See also
 
 - [Plan and Implement](01-plan-and-implement.md): producing the branch that this flow starts from.
-- [Internals: Model Routing and Memory](06-internals-memory-and-routing.md): why deep-review's subagents run on a different model than the orchestrating session.
-- [Docs index](index.md)
+- [Internals: Model Routing and Memory](../internals/02-model-routing-and-memory.md): why deep-review's subagents run on a different model than the orchestrating session.
+- [Docs index](../index.md)
