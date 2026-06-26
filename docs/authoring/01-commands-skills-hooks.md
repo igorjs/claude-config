@@ -144,6 +144,6 @@ Hook and settings changes take effect on a fresh session, not a resumed one. Aft
 
 ## See also
 
-- [Internals: Launcher and Hooks](05-internals-launcher-and-hooks.md): the hook lifecycle and launcher internals.
-- [Decisions and Memory](03-decisions-and-memory.md): authoring memory facts.
-- [Docs index](index.md)
+- [Internals: Launcher and Hooks](../internals/01-launcher-and-hooks.md): the hook lifecycle and launcher internals.
+- [Decisions and Memory](../guides/03-decisions-and-memory.md): authoring memory facts.
+- [Docs index](../index.md)

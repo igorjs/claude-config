@@ -177,6 +177,7 @@ Run the project's checks (from Step 3 detection), e.g. type-check, lint, and tes
 - **Doc audit:** every new/modified function has a doc comment explaining WHY; add any that are missing.
 - **Update status:** change the plan's `Status: Proposed` to `Status: Implemented`.
 - **Memory capture:** record notable errors and their fixes as memory facts.
+- **Refresh the memory graph:** if you wrote any project memory facts this run, rebuild the project `graph.json` with `/learn-project --graph-only`.
 
 In `--auto`, after validation passes, continue to the refinement pass (Step 8). The PR opens at the end of Step 9, after the refinement and adversarial review pass, not here.
 

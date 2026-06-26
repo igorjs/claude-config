@@ -1,7 +1,7 @@
 ---
 description: Deeply learn the current project (git history, PRs, JIRA, Confluence), store distilled topics in the memory system (routed per-project vs global), and export a navigable graph.json of the memory graph.
 allowed-tools: Bash, Read, Grep, Glob, Write, Task, WebFetch
-argument-hint: "[--refresh] [--graph-only] [--max-prs N] [--max-commits N]"
+argument-hint: "[--refresh] [--graph-only] [--stage] [--from-staged] [--max-prs N] [--max-commits N]"
 model: opus
 effort: high
 ---
@@ -16,6 +16,8 @@ Parse `$ARGUMENTS`:
 
 - `--refresh` → re-derive and supersede existing learned facts instead of skipping them.
 - `--graph-only` → skip Phases 1-3; rebuild the project `graph.json` from current memory (Phase 4.5), then report. Use after hand-editing facts.
+- `--stage` → run collection and analysis (Phases 0-2) but don't write to the live store or ask for confirmation. Write candidate facts to `<repo>/.claude/memory/staging/` for later review, then stop. See **Staging mode**. Use for unattended or session-end runs.
+- `--from-staged` → skip collection; load candidates from `<repo>/.claude/memory/staging/`, run the normal confirm-and-write flow (Phases 3-4.5), then clear the staging area.
 - `--max-prs N` (default 200) and `--max-commits N` (default: all, summarized) → bound scope on large repos.
 - Anything else → ignore with a one-line warning; don't abort.
 
@@ -25,7 +27,7 @@ Parse `$ARGUMENTS`:
 2. Read files before asserting facts about them (grounding).
 3. Combine independent bash calls into a single tool call.
 4. Never edit project code or config. Writes are limited to `.claude/memory/` files and one `.gitignore` line.
-5. Dispatch subagents for collection and analysis. **REQUIRED:** follow `superpowers:dispatching-parallel-agents`. Subagents return distilled structured findings, never raw dumps.
+5. Dispatch subagents for collection and analysis with the Task tool: issue the independent Task calls in a single message so they run in parallel. Subagents return distilled structured findings, never raw dumps.
 6. No silent truncation. If you cap commits/PRs or skip a source, the final report says so.
 7. Never persist secrets. Tokens, keys, or credentials seen in configs/CI must never enter a memory fact.
 
@@ -134,6 +136,26 @@ Regenerate `graph.json` **colocated with the project store's `MEMORY.md`** (`<re
 ```
 
 `graph.json` sits beside the project `MEMORY.md`, inside the memory store, so it's already git-ignored. With `--graph-only`, this is the only phase that runs after Phase 0.
+
+## Staging mode (`--stage` and `--from-staged`)
+
+These split collection from the write decision, so a run can happen unattended (for example, nudged at session end) and the human approves later. The staging area is `<repo>/.claude/memory/staging/`, inside the git-ignored memory dir.
+
+**`--stage`** (collect now, decide later):
+
+1. Run Phases 0-2 as normal to produce candidate facts.
+2. Skip Phase 3's confirmation and Phase 4's live writes. Create `<repo>/.claude/memory/staging/` (and the one-time `.gitignore` line from Phase 4 if the store is new), then write each candidate to `<repo>/.claude/memory/staging/<kebab>.md` in the normal fact format, plus two extra frontmatter fields: `status: pending` and `staged: <date +%F>`, a `scope:` (`repo` | `global`), and, when it would update an existing fact, a `supersedes:` note.
+3. Write or refresh `<repo>/.claude/memory/staging/STAGED.md` with one `- [Title](file.md): one-line hook` line per candidate.
+4. Do NOT touch the live `MEMORY.md` or `graph.json`.
+5. Report the count staged, the staging path, and: "Review with `/learn-project --from-staged`."
+
+**`--from-staged`** (review and promote):
+
+1. Skip Phases 0-2. Read every candidate in `<repo>/.claude/memory/staging/`.
+2. Run Phase 3 against them: show the candidate table, dedupe against the live stores, and ask once "Write these to memory?" (honor a subset).
+3. For approved candidates, run Phase 4 (write to the live store, dropping the `status`/`staged` staging fields; apply `supersedes`/updates; refresh `MEMORY.md`) and Phase 4.5 (rebuild `graph.json`).
+4. Remove promoted candidates from staging. Leave any the user skipped; delete any the user rejects.
+5. Report as in Phase 5.
 
 ## Phase 5: Report
 

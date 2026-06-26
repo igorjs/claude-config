@@ -228,7 +228,8 @@ After the gate passes (or is overridden):
 1. **Update the record:** Status Proposed → Accepted, and bump Date modified to today.
 2. **Verify the blueprint** (if any): its Parent ADR reference points to the correct record path.
 3. **Save the quality report** to `{DIR}/{base}-quality.md`.
-4. **Report** the final file paths to the user.
+4. **Refresh the memory graph:** if you wrote any project memory facts for this decision, rebuild the project `graph.json` with `/learn-project --graph-only` so it stays current.
+5. **Report** the final file paths to the user.
 
 ### Kebab Title Convention
 

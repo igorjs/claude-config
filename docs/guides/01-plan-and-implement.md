@@ -106,4 +106,4 @@ Feature: add a `--json` flag to a CLI export command. After `/scope`, the plan h
 
 - [Decisions and Memory](03-decisions-and-memory.md): when to use `/adr` instead of `/scope`, and how both memory stores feed planning.
 - [Review and PR flow](02-review-and-pr-flow.md): reviewing the branch after `/implement` finishes.
-- [Docs index](index.md)
+- [Docs index](../index.md)

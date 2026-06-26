@@ -94,6 +94,6 @@ Both events wire to the same script.
 
 ## See also
 
-- [Authoring Commands, Skills, and Hooks](04-authoring-commands-skills-hooks.md): how to write your own hook.
-- [Internals: Model Routing and Memory](06-internals-memory-and-routing.md): model routing and the system prompt.
-- [Docs index](index.md)
+- [Authoring Commands, Skills, and Hooks](../authoring/01-commands-skills-hooks.md): how to write your own hook.
+- [Internals: Model Routing and Memory](02-model-routing-and-memory.md): model routing and the system prompt.
+- [Docs index](../index.md)

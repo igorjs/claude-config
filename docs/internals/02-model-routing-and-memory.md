@@ -88,10 +88,10 @@ Traversal depth is 1 for all edge types except `supersedes`, which is followed f
 
 ### graph.json
 
-`/learn-project` generates `<repo>/.claude/memory/graph.json` alongside the project `MEMORY.md`. It's the navigable export of the project memory graph: nodes are facts and referenced code locations, edges are `links:` between facts plus `anchors:` from facts to code. The global store doesn't get a graph. See [Decisions and Memory](03-decisions-and-memory.md) for how to query and use it day-to-day.
+`/learn-project` generates `<repo>/.claude/memory/graph.json` alongside the project `MEMORY.md`. It's the navigable export of the project memory graph: nodes are facts and referenced code locations, edges are `links:` between facts plus `anchors:` from facts to code. The global store doesn't get a graph. See [Decisions and Memory](../guides/03-decisions-and-memory.md) for how to query and use it day-to-day.
 
 ## See also
 
-- [Decisions and Memory](03-decisions-and-memory.md): using memory day-to-day and the `/learn-project` command.
-- [Internals: Launcher and Hooks](05-internals-launcher-and-hooks.md): the `cc` launcher that sets the session model.
-- [Docs index](index.md)
+- [Decisions and Memory](../guides/03-decisions-and-memory.md): using memory day-to-day and the `/learn-project` command.
+- [Internals: Launcher and Hooks](01-launcher-and-hooks.md): the `cc` launcher that sets the session model.
+- [Docs index](../index.md)
