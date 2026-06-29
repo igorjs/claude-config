@@ -45,4 +45,3 @@ __pycache__/
 .DS_Store
 *.bak
 *~
-.claude/plans/
