@@ -14,13 +14,37 @@ Review a pull request with grounding-review discipline. Output a structured repo
 
 Parse `$ARGUMENTS`:
 
-- Integer (e.g. `4265`, `#4265`) → explicit PR number, review that PR.
-- Empty → **self-review mode**: resolve the PR for the current branch via `gh pr view --json number,headRefOid,author,headRefName -q '.number'`. If no PR exists, abort with `error: no PR found for current branch <name>; create one first or pass a PR number`.
-- Anything else → abort with `error: pass an integer PR number or no args (self-review)`.
+- **Integer or `#N`** (e.g. `4265`, `#4265`) → explicit PR number; resolve `HEAD_SHA` via `gh pr view <PR_NUMBER> --json headRefOid -q .headRefOid`.
+- **Branch name** (anything that isn't an integer and isn't empty, and passes `git check-ref-format --branch <arg>`) → resolve to its open PR number via:
+  ```bash
+  PR_NUMBER=$(gh pr list --head <branch> --json number -q '.[0].number' 2>/dev/null)
+  ```
+  Error (abort) if no PR found: `error: no open PR for branch <name>; create one first or pass a PR number`.
+- **Empty** → self-review mode: resolve the current branch's PR via `gh pr view --json number,headRefOid,author,headRefName`, same as current.
 
 ## Self-review awareness
 
 GitHub rejects `APPROVE` and `REQUEST_CHANGES` events from the PR author. In self-review mode, the submit-verb question MUST only offer `comment` or `skip`. Detect by comparing `gh pr view --json author -q .author.login` against `gh api /user -q .login`.
+
+## Worktree vs in-place mode
+
+After resolving `PR_NUMBER` and `HEAD_SHA`, decide how to read the PR's files:
+
+**In-place** (no worktree): use the current working tree when BOTH conditions hold:
+1. `git rev-parse HEAD` equals `HEAD_SHA`
+2. `git status --porcelain --untracked-files=no` is empty (no staged or unstaged tracked-file changes)
+
+In self-review mode (no argument), the in-place predicate runs the same check. If the current branch's HEAD matches `HEAD_SHA` and the tree is clean, review in place.
+
+**Worktree mode** (all other cases): set up an isolated worktree:
+
+```bash
+WT="$(bash "$HOME/.claude/shell/review-worktree.sh" setup "$PR_NUMBER" "$HEAD_SHA" 2>&1)"
+```
+
+If this exits non-zero, the content of `$WT` is an error message. Print it, stop. No fallback, no degraded mode.
+
+When in worktree mode, read and grep all files under `$WT` instead of the local working tree. Store `WT_CREATED=true` for the teardown step.
 
 ## Voice rules (mandatory)
 
@@ -56,20 +80,51 @@ ARGS="$ARGUMENTS"
 ARGS="${ARGS// /}"
 
 if [ -z "$ARGS" ]; then
-  PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null) || { echo "error: no PR for current branch" >&2; exit 1; }
+  # Self-review mode: resolve current branch's PR
+  PR_JSON=$(gh pr view --json number,headRefOid,author,headRefName 2>/dev/null) || { echo "error: no PR found for current branch; create one first or pass a PR number" >&2; exit 1; }
+  PR_NUMBER=$(echo "$PR_JSON" | jq -r .number)
+  HEAD_SHA=$(echo "$PR_JSON" | jq -r .headRefOid)
 else
   ARGS="${ARGS#\#}"
-  case "$ARGS" in
-    ''|*[!0-9]*) echo "error: pass an integer PR number or no args" >&2; exit 1 ;;
-  esac
-  PR_NUMBER="$ARGS"
+  if [[ "$ARGS" =~ ^[0-9]+$ ]]; then
+    # Integer: explicit PR number
+    PR_NUMBER="$ARGS"
+    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
+  elif git check-ref-format --branch "$ARGS" 2>/dev/null; then
+    # Branch name: resolve to open PR
+    PR_NUMBER=$(gh pr list --head "$ARGS" --json number -q '.[0].number' 2>/dev/null)
+    if [ -z "$PR_NUMBER" ]; then
+      echo "error: no open PR for branch $ARGS; create one first or pass a PR number" >&2
+      exit 1
+    fi
+    HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
+  else
+    echo "error: pass an integer PR number, a branch name, or no args (self-review)" >&2
+    exit 1
+  fi
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid)
 PR_AUTHOR=$(gh pr view "$PR_NUMBER" --json author -q .author.login)
 ME=$(gh api /user -q .login)
 SELF_REVIEW=$([ "$PR_AUTHOR" = "$ME" ] && echo true || echo false)
+
+# Decide: review in-place or via isolated worktree
+LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null)
+if [[ "$LOCAL_HEAD" == "$HEAD_SHA" && -z "$DIRTY" ]]; then
+  WT=""
+  WT_CREATED=false
+  echo "Mode: in-place (HEAD matches, tree clean)"
+else
+  WT="$(bash "$HOME/.claude/shell/review-worktree.sh" setup "$PR_NUMBER" "$HEAD_SHA" 2>&1)"
+  if [[ $? -ne 0 ]]; then
+    echo "error: worktree setup failed: $WT" >&2
+    exit 1
+  fi
+  WT_CREATED=true
+  echo "Mode: worktree at $WT"
+fi
 
 REVIEW_JSON="/tmp/$REPO/quick-review-$PR_NUMBER.json"
 mkdir -p "$(dirname "$REVIEW_JSON")"
@@ -85,11 +140,14 @@ gh pr diff "$PR_NUMBER"
 
 Capture: `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. You'll need them for the API calls in Step 4. `REVIEW_JSON` resolves to `/tmp/<org>/<repo>/quick-review-<number>.json`, and its directory is created here so the Step 4 write succeeds.
 
-## Step 2: Read changed files at HEAD
+## Step 2: Read changed files
 
-For each file in the diff, Read it (whole file or relevant region) before drafting any finding on it. Diff context alone is insufficient (grounding-review rule).
+For each file in the diff, read the full file before drafting any finding (grounding-review rule).
 
-If the branch is checked out locally and the working tree matches `HEAD_SHA`, local Read is fine. Otherwise fetch via `gh api /repos/$REPO/contents/<path>?ref=$HEAD_SHA -H 'Accept: application/vnd.github.raw'`.
+- **In-place mode** (`WT` is empty): use local `Read` on each file path.
+- **Worktree mode**: read each file under `$WT/<relative-path>`. Use `Read "$WT/<path>"` or `grep` under `$WT`.
+
+There is no gh-api fallback. If the worktree setup in Step 1 failed, execution has already stopped.
 
 ## Step 3: Draft the review report
 
@@ -172,6 +230,16 @@ Final user-facing message: one sentence per outcome.
 
 - "Pending review id `<id>` created, 7 inline comments queued. Submit from the UI when ready."
 - OR: "Submitted as `COMMENT` at <timestamp>. Author will get one notification."
+
+## Step 6: Teardown (MUST run — even on failure, abort, or skip)
+
+If `WT_CREATED` is true, always run:
+
+```bash
+bash "$HOME/.claude/shell/review-worktree.sh" teardown "$WT"
+```
+
+This step is unconditional: run it whether the review completed, failed, was skipped, or was aborted by the user. It is a no-op if the worktree was already cleaned up.
 
 ## Anti-patterns to refuse
 

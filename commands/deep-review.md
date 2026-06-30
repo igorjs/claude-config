@@ -12,6 +12,8 @@ Review a pull request with a swarm of specialist reviewer subagents run in paral
 
 Invoked as `/deep-review`. The remaining arguments are an optional PR number and flags.
 
+> **Security caveat:** running `/deep-review` on an explicit PR installs and runs the PR's code in your local environment: npm preinstall/postinstall hooks, build scripts, test suites. This exposes you to supply-chain attacks and code execution with your credentials in reach. Only run it on PRs you trust to execute locally.
+
 ## Help
 
 If the arguments contain `--help`, print this and stop:
@@ -83,13 +85,21 @@ Invoke the `grounding-review` and `writing-style` skills before drafting any fin
 
 ```bash
 ARGS="$ARGUMENTS"
-FLAGS=$(echo "$ARGS" | grep -oE '\-\-[a-z]+( [a-z]+)?')   # for reference; parse flags from $ARGUMENTS
 PR_ARG=$(echo "$ARGS" | tr ' ' '\n' | grep -E '^#?[0-9]+$' | head -1 | tr -d '#')
 
-if [ -z "$PR_ARG" ]; then
-  PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null) || { echo "error: no PR for current branch; pass a PR number" >&2; exit 1; }
-else
+if [[ -n "$PR_ARG" ]]; then
+  # Integer or #N — explicit PR number
   PR_NUMBER="$PR_ARG"
+else
+  PR_ARG=$(echo "$ARGS" | tr ' ' '\n' | grep -vE '^--|^$' | grep -vE '^#?[0-9]+$' | head -1)
+  if [[ -n "$PR_ARG" ]]; then
+    # Branch name — resolve to its open PR number
+    PR_NUMBER=$(gh pr list --head "$PR_ARG" --json number -q '.[0].number' 2>/dev/null)
+    [[ -n "$PR_NUMBER" ]] || { echo "error: no open PR for branch $PR_ARG" >&2; exit 1; }
+  else
+    # Empty — current branch's PR
+    PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null) || { echo "error: no PR for current branch; pass a PR number" >&2; exit 1; }
+  fi
 fi
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -106,9 +116,28 @@ echo "Review JSON: $REVIEW_JSON"
 
 gh pr view "$PR_NUMBER"
 gh pr diff "$PR_NUMBER"
+
+# Decide: review in-place or via isolated worktree
+LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+DIRTY=$(git status --porcelain --untracked-files=no 2>/dev/null)
+if [[ "$LOCAL_HEAD" == "$HEAD_SHA" && -z "$DIRTY" ]]; then
+  WT=""
+  WT_CREATED=false
+  echo "Mode: in-place (HEAD matches, tree clean)"
+else
+  WT="$(bash "$HOME/.claude/shell/review-worktree.sh" setup "$PR_NUMBER" "$HEAD_SHA" 2>&1)"
+  if [[ $? -ne 0 ]]; then
+    echo "error: worktree setup failed: $WT" >&2
+    exit 1
+  fi
+  WT_CREATED=true
+  echo "Mode: worktree at $WT"
+fi
 ```
 
 Capture `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. `--self` forces self-review mode (never posts), regardless of authorship.
+
+In worktree mode, `WT` holds the absolute path to the isolated checkout and `WT_CREATED=true`. In in-place mode, both are empty/false. Subagents use `$WT` for all reads; if empty, they read from the local working tree.
 
 ## Step 2: Select reviewers
 
@@ -117,9 +146,43 @@ Capture `REPO`, `PR_NUMBER`, `HEAD_SHA`, `SELF_REVIEW`, `REVIEW_JSON`. `--self` 
 - `--preset <name>` → that preset's set.
 - otherwise (`auto`, default) → all core reviewers, plus each conditional reviewer whose trigger appears in the diff from Step 1 (grep the diff for migration dirs, schema files, feature flags, new modules, ADR files, >300 changed lines, etc.). Report which reviewers you selected and why.
 
+## Step 2b: Run checks in the worktree (best-effort, worktree mode only)
+
+Skip this step entirely when `WT_CREATED` is false (in-place mode).
+
+In the worktree (`cd "$WT"`), detect the toolchain and run the full check suite once. Capture stdout+stderr:
+
+```bash
+cd "$WT"
+CHECK_OUTPUT=""
+
+if [[ -f package.json ]]; then
+  npm install --prefer-offline 2>&1 | tail -5
+  CHECK_OUTPUT=$(npm run typecheck 2>&1; npm run lint 2>&1; npm test 2>&1) || true
+elif [[ -f pyproject.toml ]] || [[ -f setup.py ]]; then
+  pip install -e . -q 2>&1 | tail -3
+  CHECK_OUTPUT=$(python -m mypy . 2>&1; python -m pytest 2>&1) || true
+elif [[ -f go.mod ]]; then
+  CHECK_OUTPUT=$(go vet ./... 2>&1; go test ./... 2>&1) || true
+elif [[ -f Cargo.toml ]]; then
+  CHECK_OUTPUT=$(cargo check 2>&1; cargo test 2>&1) || true
+else
+  CHECK_OUTPUT="[no recognised toolchain; checks skipped]"
+fi
+
+# Print so the orchestrating session can read it and embed it in subagent prompts
+printf '%s\n' "$CHECK_OUTPUT"
+```
+
+If install or run fails, log the error in `CHECK_OUTPUT` and continue: never block the review. The `printf` at the end makes the output visible in the tool result so Step 3 can embed it verbatim in each subagent prompt.
+
 ## Step 3: Spawn the reviewer swarm (parallel Task subagents)
 
-Spawn the selected reviewers **in parallel** (one message, multiple `Task` calls), each as a `general-purpose` subagent with `model: "sonnet"`. Each reviewer prompt MUST include: its focus area (from the table), the PR diff and `HEAD_SHA`, and the `grounding-review` + `grounding-research` discipline. Instruct each to:
+Spawn the selected reviewers **in parallel** (one message, multiple `Task` calls), each as a `general-purpose` subagent with `model: "sonnet"`. Each reviewer prompt MUST include: its focus area (from the table), the PR diff and `HEAD_SHA`, the `grounding-review` + `grounding-research` discipline, the absolute `$WT` path (or a note that the tree is in-place if `WT` is empty) with the instruction "Read and grep files under <WT>; do not install or build anything.", and the `CHECK_OUTPUT` captured in Step 2b verbatim under a heading "Check suite output (from orchestrator)".
+
+In worktree mode, each reviewer prompt includes the absolute `$WT` path with the instruction "read and grep files under $WT; do not install or build." Subagents are read-only. The orchestrator has already run the checks once in Step 2b; subagents use the captured output as context, not as a trigger to re-run.
+
+Instruct each to:
 
 - Read every file it cites at `HEAD_SHA` (diff context alone is insufficient); quote exact code with `file:line`; tag anything unconfirmed `[unverified]`.
 - Stay within its focus; don't report issues another reviewer owns.
@@ -196,6 +259,16 @@ Never fabricate URLs; use the `html_url` the API returns.
 - Persist each POSTED blocking/non-blocking finding as a project memory fact (`type: project`, tag it a review gotcha, `anchors:` to the file), deduping against existing memory first. Skip suggestions/nitpicks/thoughts and anything not posted.
 - If non-self-review and the PR has unaddressed review threads, offer to run `/address-pr-comments $PR_NUMBER`.
 - Final message: one line per outcome (pending review id + count, or submitted verb + timestamp).
+
+## Step 8: Teardown (MUST run — even on failure, abort, or skip)
+
+If `WT_CREATED` is true, always run:
+
+```bash
+bash "$HOME/.claude/shell/review-worktree.sh" teardown "$WT"
+```
+
+Run this whether the review completed, failed, was skipped, or was aborted mid-swarm. It's a no-op if the worktree is already gone.
 
 ## Anti-patterns to refuse
 
