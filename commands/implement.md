@@ -33,8 +33,8 @@ TASK SOURCES:
 
 OPTIONS:
   --help     Show this help
-  --auto     Autonomous: execute Work Units in dependency order (parallel-safe ones
-             concurrently), commit each, open a PR
+  --auto     Autonomous: execute Work Units in dependency order (independent ones
+             concurrently, in isolated worktrees), commit each, open a PR
   --no-tdd   Write tests alongside implementation instead of red/green/refactor
   --force    In --auto mode, override quality-gate FAILs (logged)
 
@@ -96,11 +96,11 @@ Decide whether the resolved reference is a **ready, executable plan**: it names 
 ## Step 3: Load Standards and Context
 
 - Invoke the `engineering-standards` skill (testing requirements, mocking, PR readiness, deployment), the `grounding-research` skill (verify before asserting), and `writing-style` (for any prose, e.g. commit messages and the PR body).
-- Read BOTH memory stores (per the system prompt's Memory section): the global store `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and, if present, the project store `.claude/memory/MEMORY.md` plus its `graph.json` (from `/learn-project`), loading the relevant fact files from each, for conventions, gotchas, and prior decisions. Honor the typed edges; a project fact that contradicts a global one wins for this repo, and surface any conflict bearing on the work rather than silently choosing.
+- If a memory store is present, load it: check whether `~/.claude/memory/MEMORY.md` exists and, if so, read it (cross-project preferences, corrections, conventions); check whether `.claude/memory/MEMORY.md` exists and, if so, read it plus its `graph.json` (from `/learn-project`), loading the relevant fact files for conventions, gotchas, and prior decisions. Honor the typed edges: a project fact that contradicts a global one wins for this repo, and surface any conflict bearing on the work rather than silently choosing. If neither store is present, skip this step silently and proceed on the codebase and the plan alone.
 - Read every file the plan references before changing it (grounding).
 - **Detect the stack** to know the verify commands: check `tsconfig.json` / `package.json` (TS/JS), `pyproject.toml` / `setup.py` (Python), `go.mod` (Go), `Cargo.toml` (Rust). Derive the type-check / lint / test commands from what you find.
 
-**Knowledge capture:** when you discover a durable convention or gotcha, write it as a project memory fact (per the system prompt's Memory section).
+**Knowledge capture:** when you discover a durable convention or gotcha, write it as a project memory fact only if a project memory store is present (`.claude/memory/` exists); otherwise skip silently.
 
 ## Step 4: Quality Gate (conditional)
 
@@ -110,11 +110,11 @@ If the plan came from `/scope` or `/adr` it already has a companion `*-quality.m
 2. **Adversarial Review** (`general-purpose` agent + the fact-check report): simpler alternatives, scope creep, missing error paths, blast radius.
 3. **Test Review** (`Explore` agent, under `engineering-standards`): regression-pinning, flakiness, independence, mock quality, assertion strength.
 
-Max 3 iterations per phase; revise on FAIL. A FAIL blocks execution unless the user explicitly overrides (or `--auto --force`). Record gotchas and rejected alternatives as memory facts.
+Max 3 iterations per phase; revise on FAIL. A FAIL blocks execution unless the user explicitly overrides (or `--auto --force`). If a project memory store is present (`.claude/memory/` exists), record gotchas and rejected alternatives as memory facts; otherwise skip silently.
 
 ## Step 5: Execute (delegated subagents, reviewed)
 
-**Delegation (MUST):** this command runs on Sonnet. The orchestrating session reads the plan and delegates each implementation chunk to a subagent via the Task tool (`model: "sonnet"`), then reviews the result. Delegation keeps each chunk in a fresh, isolated context (no bleed between cycles) and lets independent chunks run in parallel; the orchestrator spends its turn reviewing, not editing. The deep design reasoning already happened in `/scope` or `/adr`, so execution doesn't need Opus.
+**Delegation (MUST):** this command runs on Sonnet. The orchestrating session reads the plan and delegates each implementation chunk to a subagent via the Task tool, then reviews the result. Delegation keeps each chunk in a fresh, isolated context (no bleed between cycles); the orchestrator spends its turn reviewing, not editing. Independent Work Units run in parallel by default, each isolated in its own git worktree, with the model tier set per role (see the scheduler below). The deep design reasoning already happened in `/scope` or `/adr`, so execution doesn't need Opus.
 
 Every Task prompt MUST include: the full plan content, the specific cycle/step/Work Unit, its Gherkin scenarios, the test-structure rules below, the verify command, the design principles below, and grounding rules ("read files before modifying, match existing style, verify imports resolve, don't guess types, apply SOLID/DRY/KISS/YAGNI").
 
@@ -128,7 +128,45 @@ When SOLID's abstraction pulls against KISS/YAGNI, favour the simplest thing tha
 
 **Execution unit (MUST): the plan's Work Units.** Execute one Work Unit (deliverable) at a time in dependency order; each WU becomes one small commit.
 
-**Parallel dispatch (decide from the plan's flags).** Read the plan's `Parallel Groups`. When a group's dependencies are all complete, dispatch its WUs as concurrent subagents: issue the Task calls in a single message (multiple tool uses) so they run at once. WUs with no group, or whose dependencies aren't done yet, run one at a time. Before dispatching concurrently, VERIFY rather than trust the flags: the group's WUs must have disjoint `Files` lists and no dependency on each other. If the files overlap, or the plan has no parallel annotations (older plans), fall back to sequential; never run two agents that write the same file at once. When running concurrently, scope each WU's verify command to its own test files (the full suite runs in Step 7) so an in-progress sibling WU can't trip another's tests.
+**Parallel-by-default scheduler (MUST).** Don't wait for the plan to pre-label groups. Build the WU dependency graph from the `Requires` column and run the acyclicity check (the procedure in Step 6) now, before executing. Then execute in waves until every WU is done:
+
+1. **Ready set.** The WUs whose `Requires` are all complete.
+2. **Form a wave.** Take the largest subset of the ready set that's safe to run together. Parallel is the default. Two ready WUs run sequentially ONLY when one of these forces it:
+   - a real dependency edge between them (transitive `Requires`),
+   - their `Files` lists intersect,
+   - shared mutable state: both touch a denylisted shared surface (migration dirs; lockfiles `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `Cargo.lock`, `go.sum`; generated, barrel, or index files; global registries; codegen outputs), or there's genuine doubt about shared state.
+
+   A plan `Parallel group` annotation, when present, confirms safety but isn't required. A WU that clashes with the forming wave drops to a later wave.
+3. **Dispatch the wave concurrently.** Issue the Task calls in a single message so they run at once, one worktree per WU (see Worktree isolation). A wave of one runs in the main tree with no worktree.
+4. **Integrate, then recompute.** After the wave returns, integrate (below), append to the ledger, then recompute the ready set for the next wave.
+
+Scope each WU's verify command to its own test files (the full suite runs in Step 7) so an in-progress sibling can't trip another's tests.
+
+**Worktree isolation (parallel waves).** For each WU in a multi-WU wave:
+
+- `git worktree add "$ROOT/.claude/worktrees/<plan-slug>/<wu-id>" HEAD` off the current branch, one per WU.
+- Dispatch the implementer to work in that worktree path (absolute paths in its brief). It implements, runs its scoped verify, and commits inside the worktree. It does NOT push.
+- **Integrate:** cherry-pick each WU's commit onto the main branch in dependency order. Disjoint files make this conflict-free. If a cherry-pick conflicts, the safety test was violated: STOP, keep the worktrees, and report. Then `git worktree remove` each.
+- Single-WU waves skip the worktree and run in the main tree.
+
+**File-based handoff.** Keep the orchestrator's context clean over long runs:
+
+- Write each WU's brief (its `Files`, `Changes`, `Test scenarios`, `Done When`, the worktree path, and the scoped verify command) to `.claude/implement/<plan-slug>/<wu-id>.brief.md` and point the subagent at that file, instead of pasting the whole plan into every prompt.
+- The implementer writes its full report to `<wu-id>.report.md` and returns ONLY: a status (`DONE`, `DONE_WITH_CONCERNS`, `BLOCKED`, or `NEEDS_CONTEXT`), its commit SHAs, and a one-line test result.
+
+**Verify-by-diff (MUST).** Never take the subagent's word. After a WU returns, confirm the work from git (`git show --stat <sha>`, review the diff against the brief) and the scoped verify. A `DONE` the diff doesn't support is a failure: re-dispatch or stop per Error handling.
+
+**Progress ledger.** Append each completed WU to `.claude/implement/<plan-slug>.progress.md` (gitignored): WU id, status, commit range. On a fresh run or after compaction, read the ledger first and skip WUs already recorded done. First use in a repo, create and ignore the dir:
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+mkdir -p "$ROOT/.claude/implement"
+for d in .claude/implement/ .claude/worktrees/; do
+  grep -qxF "$d" "$ROOT/.gitignore" 2>/dev/null || printf '%s\n' "$d" >> "$ROOT/.gitignore"
+done
+```
+
+**Model tiering (MUST, never omit `model`).** Implementer Tasks run `model: "sonnet"`. Mechanical bits (brief extraction, ledger writes) run `model: "haiku"`. Verification and the adversarial review (Step 9) run the capable tier. An omitted `model` silently inherits the priciest default, so always set it.
 
 **Test structure (from `engineering-standards`):** every test follows Arrange-Act-Assert with `// Arrange` / `// Act` / `// Assert` comments mapping to the scenario's Given/When/Then; one action per test; use parameterised tests (`test.each`, `pytest.mark.parametrize`, table-driven) when scenarios share AAA structure but differ in data.
 
@@ -141,7 +179,12 @@ When SOLID's abstraction pulls against KISS/YAGNI, favour the simplest thing tha
 
 **Without TDD (`--no-tdd`).** For each logical file group: one Sonnet Task implements code + tests together (tests still encode the Gherkin scenarios); run verify; the orchestrator reviews as above.
 
-**Commit after each Work Unit (MUST): small commits.** After the orchestrator review passes for a WU, stage exactly that WU's files (`git add <the WU's Files list>`), then run `/commit-and-push -y` (auto-confirmed, so it doesn't pause between units). Staging per-WU yields one small commit per deliverable even when WUs ran concurrently and their changes coexist in the working tree. Confirm the WU's files are committed afterwards (they no longer appear in `git status --porcelain`). One coherent commit per WU. If commit fails, retry once, then stop and report.
+**Commit per Work Unit (MUST): small commits.** One coherent commit per WU.
+
+- **Parallel wave (worktree):** the implementer commits its WU inside its worktree, staging exactly its `Files` (it does not push). During integration the orchestrator cherry-picks each commit onto the main branch in dependency order, then pushes the branch once (`git push`). Confirm each WU's files landed (`git log --stat`).
+- **Single-WU wave (main tree):** after the orchestrator review passes, stage exactly that WU's files (`git add <the WU's Files list>`) and run `/commit-and-push -y`. Confirm the files are committed (they no longer appear in `git status --porcelain`).
+
+If a commit or cherry-pick fails, retry once, then stop and report.
 
 ## Step 6: Autonomous Mode (`--auto`)
 
@@ -150,7 +193,7 @@ When SOLID's abstraction pulls against KISS/YAGNI, favour the simplest thing tha
 - **Branch first.** If on the default branch, create a feature branch before any commit (never auto-commit to the default branch). Never `--no-verify`, never force-push.
 - A FAIL in Step 4 blocks; `--force` overrides it (logged to the quality report).
 
-**Cycle check (MUST, before executing).** Verify the Work Unit dependency graph is acyclic:
+**Cycle check (MUST, before executing, both modes).** Step 5's scheduler runs this before any wave; in `--auto` it's the same check. Verify the Work Unit dependency graph is acyclic:
 
 1. Build the adjacency list from the plan's Work Units table (`WU-N -> [Requires]`).
 2. Count incoming edges per WU; seed a queue with the zero-incoming WUs.
@@ -162,9 +205,9 @@ Report the result: `Cycle check: PASS (N WUs resolve in topological order)` or h
 **Per Work Unit (or parallel batch), in dependency order:**
 
 1. Confirm all WUs in the "Requires" column are done.
-2. If the next ready WUs share a `Parallel group` (and pass the disjoint-files verification from Step 5), dispatch them as concurrent Sonnet Tasks in one message; otherwise execute the single WU (WU-0 types first; then the RED/GREEN/REFACTOR flow per cycle, or a single Task for `--no-tdd`), delegated to Sonnet.
+2. Dispatch each wave with the Step 5 parallel-by-default scheduler (ready set, safety test, worktree isolation, integration). Don't gate on `Parallel group` annotations; parallelize whatever the safety test allows, sequential only when forced. Within a WU, WU-0 types first, then the RED/GREEN/REFACTOR flow per cycle (or a single Task for `--no-tdd`), delegated to Sonnet.
 3. **Post-WU review:** changes match each WU's spec and file plan; doc comments explain WHY; no files outside the file plan touched.
-4. Commit each WU separately: stage that WU's files, run `/commit-and-push -y`, then confirm its files are committed.
+4. Commit and integrate per the Step 5 commit rules: implementers commit inside their worktrees, the orchestrator cherry-picks in dependency order and pushes; single-WU waves commit in the main tree.
 5. Mark each WU's "Done When" checkboxes in the plan file.
 
 **Error handling:** if a WU fails (verify fails, wrong output, or commit fails) after 3 fix retries, **stop**. Don't continue to dependent WUs. Report the failed WU, the error, and the remaining WUs.
@@ -176,8 +219,8 @@ Run the project's checks (from Step 3 detection), e.g. type-check, lint, and tes
 - Fix and re-validate until green.
 - **Doc audit:** every new/modified function has a doc comment explaining WHY; add any that are missing.
 - **Update status:** change the plan's `Status: Proposed` to `Status: Implemented`.
-- **Memory capture:** record notable errors and their fixes as memory facts.
-- **Refresh the memory graph:** if you wrote any project memory facts this run, rebuild the project `graph.json` with `/learn-project --graph-only`.
+- **Memory capture:** if a project memory store is present (`.claude/memory/` exists), record notable errors and their fixes as memory facts; otherwise skip silently.
+- **Refresh the memory graph:** if a project memory store is present and you wrote any memory facts this run, rebuild the project `graph.json` with `/learn-project --graph-only`; otherwise skip silently.
 
 In `--auto`, after validation passes, continue to the refinement pass (Step 8). The PR opens at the end of Step 9, after the refinement and adversarial review pass, not here.
 
@@ -194,7 +237,7 @@ Run this pass once. Don't loop: Step 9 is the backstop for whatever remains.
 
 ## Step 9: Adversarial Review (MUST)
 
-This reviews the IMPLEMENTED work, not the plan: Step 4's adversarial review ran before execution against the plan; this one runs after, against the diff. Spawn an adversarial reviewer (`general-purpose` agent, under the `grounding-review` discipline) with the full branch diff, the plan, and the refinement notes. Its job is to break the work, not bless it:
+This reviews the IMPLEMENTED work, not the plan: Step 4's adversarial review ran before execution against the plan; this one runs after, against the diff. Dispatch it as a swarm of lens-specialized reviewers in parallel (each reads the diff, none writes, so parallel is always safe): issue one Task per lens in a single message, each a `general-purpose` agent on the capable tier under the `grounding-review` discipline, with the full branch diff, the plan, and the refinement notes. Each lens tries to break the work, not bless it:
 
 - **Correctness:** bugs, off-by-one, unhandled errors, regressions the tests miss.
 - **Behaviour drift:** did any simplification or refactor change observable behaviour?
@@ -202,7 +245,7 @@ This reviews the IMPLEMENTED work, not the plan: Step 4's adversarial review ran
 - **Scope:** anything built beyond the plan; anything the plan required but is missing.
 - **Tests:** weak assertions, missing boundary or regression coverage, flakiness.
 
-It returns severity-classified findings with `file:line` evidence and a fix per finding. Apply the fixes you hold with HIGH confidence plus every blocking correctness/security finding; re-run the Step 7 validation checks after applying them. Surface the rest as known follow-ups: don't silently drop them, and don't start a second refinement loop.
+Each lens returns severity-classified findings with `file:line` evidence and a fix per finding. **Consolidate:** merge the returns, dedup overlapping findings, drop anything already addressed, and fact-check each surviving finding against the file at HEAD before acting (discard stale or hallucinated ones). Then apply the fixes you hold with HIGH confidence plus every blocking correctness/security finding, and re-run the Step 7 validation checks. Surface the rest as known follow-ups: don't silently drop them, and don't start a second refinement loop.
 
 **Finish.** In interactive mode, report the applied fixes and unresolved follow-ups to the user; leave the PR to them. In `--auto`, once the Step 7 validation checks are green after the adversarial fixes, open the PR with `gh pr create` (title and body from the plan and commit history, in the `writing-style` voice), listing the unresolved non-blocking findings under a "Follow-ups" heading.
 

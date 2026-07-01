@@ -1,7 +1,7 @@
 ---
 description: Interview-driven planning session with deep requirements gathering that produces a verified implementation plan.
 allowed-tools: Bash, Read, Grep, Glob, Write, Task
-argument-hint: "[topic | ./prompt.md] [--auto] [--help]"
+argument-hint: "[topic | ./prompt.md | .claude/designs/*.md] [--auto] [--help]"
 model: opus
 effort: xhigh
 ---
@@ -23,6 +23,7 @@ USAGE:
   /scope [topic]              Start interactive planning
   /scope "user auth system"   Start with a topic seed
   /scope ./prompt.md          Load topic seed from a file
+  /scope .claude/designs/x.md Plan from a /brainstorm design doc
 
 ARGUMENTS:
   If the argument is a file path (starts with ./ or / and the file exists),
@@ -36,8 +37,8 @@ OPTIONS:
   --help   Show this help
 
 Asks one question at a time with a recommended answer. Explores the codebase
-and both memory stores (global ~/.claude/memory/ + project .claude/memory/, plus graph.json from /learn-project) to answer
-questions itself before asking you. Walks decision trees, runs a 3-phase
+and both memory stores (global `~/.claude/memory/` + project `.claude/memory/`, plus `graph.json` from `/learn-project`) when they exist to answer
+questions itself before asking you. Memory is optional: when neither store is present, it relies on the codebase alone. Walks decision trees, runs a 3-phase
 quality gate, and produces a verified, self-contained plan broken into small
 Work Units (some flagged parallel-safe) that you can run with /implement (or
 the superpowers:executing-plans skill).
@@ -49,7 +50,7 @@ the superpowers:executing-plans skill).
 
 1. **Ask ONE question at a time.** Not two, not a batch. One question, wait for the answer, then the next. The only exception: the very first message, where you present initial context and the first question.
 2. **Provide your recommended answer with every question.** Format: "Question? **I'd recommend X** because Y." The user can accept, reject, or modify. This keeps the conversation moving instead of stalling on open-ended questions.
-3. **If a question can be answered by exploring the codebase, explore instead of asking.** Read the files, grep for patterns, check the config and the project memory. Only ask the user about decisions, preferences, and constraints that aren't in the code.
+3. **If a question can be answered by exploring the codebase, explore instead of asking.** Read the files, grep for patterns, check the config and the project memory store if one is present. Only ask the user about decisions, preferences, and constraints that aren't in the code.
 4. **Walk the decision tree.** Each answer may open new branches. Track which branches are resolved and which are still open. Don't jump to unrelated topics while a branch has unresolved dependencies.
 5. **Do NOT produce the implementation plan until all branches are resolved.** The user invoked `/scope` because they want thorough design, not a quick answer.
 6. **Do NOT write any code.** This is a planning session. The output is a plan file, not implementation.
@@ -63,7 +64,7 @@ If the argument looks like a file path (starts with `./`, `../`, `/`, or `~`, or
 
 This happens before Step 1. The loaded content replaces the raw argument as the topic seed.
 
-**When a file path is provided, the file IS the context (MUST).** Do NOT explore the repo beyond what the file explicitly references. Skip the general repo exploration in Step 1 (no git log, no TODO scan, no manifest scan), but STILL read both memory stores (global `~/.claude/memory/` and the project `.claude/memory/`) — memory is always consulted. Beyond memory, read ONLY the file, then go straight to your first question based on its content. If the file references specific source files, modules, or APIs by name, you may read those, but do NOT go looking for things the file does not mention.
+**When a file path is provided, the file IS the context (MUST).** Do NOT explore the repo beyond what the file explicitly references. Skip the general repo exploration in Step 1 (no git log, no TODO scan, no manifest scan). If a memory store is present, read it (global `~/.claude/memory/` and/or project `.claude/memory/`); when neither exists, skip this and proceed with the file content alone. Beyond memory, read ONLY the file, then go straight to your first question based on its content. If the file references specific source files, modules, or APIs by name, you may read those, but do NOT go looking for things the file does not mention.
 
 **Ignore `.gitignore`d files (MUST).** Don't read files matched by `.gitignore` (PDFs, build artefacts, binaries, vendor dirs, `.env`), even if the prompt file mentions them. Only read tracked source files.
 
@@ -71,21 +72,37 @@ This happens before Step 1. The loaded content replaces the raw argument as the 
 
 Enable when `--auto` appears in the arguments; strip it (like `--help`) before resolving the topic seed. `--auto` runs the entire scope without the interview, then stops after saving the plan — it never writes code (run `/implement` to build it). Concretely:
 
-- **No questions.** For every decision Step 2 would ask, take the answer you would have recommended ("I'd recommend X because Y") and proceed. Still do the Step 1 research first — explore the codebase and both memory stores, since a preference or convention there may override your default choice.
+- **No questions.** For every decision Step 2 would ask, take the answer you would have recommended ("I'd recommend X because Y") and proceed. Still do the Step 1 research first: explore the codebase and, if a memory store is present, read it too, since a preference or convention there may override your default choice. When no memory store exists, skip that step silently.
 - **Record assumptions.** Every self-made decision goes into an **Assumptions** list with its rationale, so the user can audit what was chosen for them. When you're genuinely split on a decision, record it as an `OPEN` assumption (with the leading option and why) rather than silently picking.
 - **Skip the confirmation gates.** Do not pause at Step 3 ("Does this capture everything?") or Step 6 ("Does this plan look right?"). Fold the Design Summary and the Assumptions list into the saved plan instead.
 - **Quality gate still runs (Step 5).** It needs no user input. If a phase still FAILs after its 3 iterations, STOP: do not save; report the failing checks and the assumptions made. No user is present to override a FAIL in `--auto`.
-- **Save and report (Step 7).** On a passing gate, save the plan and quality report, persist the accepted decisions as memory, then tell the user the paths, the assumptions made (flag any `OPEN` ones), and to run `/implement` when ready.
+- **Save and report (Step 7).** On a passing gate, save the plan and quality report, then tell the user the paths, the assumptions made (flag any `OPEN` ones), and to run `/implement` when ready. If a project memory store is present, persist the accepted decisions there; otherwise skip.
+
+## Design Doc Handoff (from `/brainstorm`)
+
+`/brainstorm` produces a design doc under `.claude/designs/` and can chain straight into `/scope`. Before Step 1, check for one:
+
+- **Explicit:** if the argument resolves (per Argument Resolution) to a file under `.claude/designs/`, that file IS the design doc.
+- **Implicit:** if no topic or file argument was given and `.claude/designs/` has entries, take the newest and ask once: "Base this plan on the design doc `<path>` (from `<date>`)? **I'd recommend yes** because it captures the agreed direction." If the user declines, proceed with a normal topic seed.
+
+When a design doc is in play, it's the authoritative context, not a raw seed:
+
+- Treat its **Decision**, chosen approach, **success criteria**, and **non-goals** as already settled. Do NOT re-litigate them in the interview.
+- The interview covers only what the doc leaves open: its **Risks and open questions**, plus the planning detail the doc didn't decide (exact files, Work Unit boundaries, test strategy).
+- Still gather the codebase context you need and explore whatever the plan requires. Still run the Step 5 quality gate and the Step 6 approval.
+- Reference the design doc path in the saved plan's Architecture section so the lineage is traceable.
+
+With no design doc, `/scope` behaves exactly as before.
 
 ## How It Works
 
 ### Step 1: Initial Context Gathering
 
-**Skip this step if a file path was provided** (see Argument Resolution), EXCEPT still read both memory stores (the first bullet below) — memory is always consulted. Then go to Step 2 with the file content as your context.
+**Skip this step if a file path was provided** (see Argument Resolution), except check for memory stores as described in the first bullet below when they exist. Then go to Step 2 with the file content as your context.
 
 With a plain-text topic seed, silently research before asking anything:
 
-- Read BOTH memory stores (per the system prompt's Memory section): the global store `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and, if present, the project store `.claude/memory/MEMORY.md` plus its `graph.json` (built by `/learn-project`). Load the relevant fact files from each. This is the durable knowledge: architecture, conventions, decisions, gotchas. Honor the typed edges; when a project fact contradicts a global one it wins for this repo, and surface any conflict bearing on the plan rather than silently choosing.
+- If a memory store is present, read it: check for the global store at `~/.claude/memory/MEMORY.md` (cross-project preferences, corrections, conventions) and the project store at `.claude/memory/MEMORY.md` plus its `graph.json` (built by `/learn-project`). Load the relevant fact files from whichever stores exist. This is the durable knowledge: architecture, conventions, decisions, gotchas. Honor the typed edges; when a project fact contradicts a global one it wins for this repo, and surface any conflict bearing on the plan rather than silently choosing. When neither store exists, skip this bullet and proceed on the codebase alone.
 - Check recent git log for context.
 - If the topic seed mentions files, modules, or features, read them.
 - Read the README and whatever build manifest exists (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) for project context.
@@ -119,7 +136,7 @@ Types of questions, in roughly this order (adapt):
 
 Between questions, explore the codebase if the answer reveals new areas. Report what you found before asking the next question.
 
-**Knowledge capture (memory).** When exploration reveals a durable convention or gotcha about the codebase (true regardless of this plan), persist it as a project memory fact right then, per the system prompt's Memory section: a kebab-case file in `.claude/memory/` with `name`/`description`/`type: project`/`links:`/`anchors:` (to the files), plus its `MEMORY.md` index line. Track each confirmed *plan decision* in the running plan draft; those are persisted at Step 7, not now.
+**Knowledge capture (memory).** When exploration reveals a durable convention or gotcha about the codebase (true regardless of this plan), and a project memory store is present at `.claude/memory/`, persist it as a project memory fact right then: a kebab-case file in `.claude/memory/` with `name`/`description`/`type: project`/`links:`/`anchors:` (to the files), plus its `MEMORY.md` index line. When no project memory store is present, skip this step silently. Track each confirmed *plan decision* in the running plan draft; those are persisted at Step 7, not now.
 
 ### Step 3: Confirm Understanding
 
@@ -202,7 +219,7 @@ If any condition fails, leave the WUs ungrouped (they run sequentially). When un
 
 ### Step 5: Quality Gate (MUST)
 
-After producing the plan, run the three-phase gate. Do NOT skip it. Do NOT ask the user to verify it. Do NOT proceed to Step 6 until it passes. The criteria are inline below; spawn one agent per phase, sequentially, via the Task tool.
+After producing the plan, run the three-phase gate. Do NOT skip it. Do NOT ask the user to verify it. Do NOT proceed to Step 6 until it passes. The criteria are inline below. Run Phase 1 first (Phases 2 and 3 read its report), then dispatch Phase 2 and Phase 3 in parallel: issue both Task calls in a single message so they run at once. The 1-before-(2,3) order is the only real dependency here; Phase 2 and Phase 3 are independent, so they never run one at a time. Consolidate all three at the Quality Gate Result.
 
 #### Phase 1: Fact-Check
 
@@ -215,7 +232,7 @@ Spawn an **Explore** agent (`subagent_type: Explore`) with the full plan and the
 - The test infrastructure the plan assumes actually exists.
 - The Work Unit dependency graph is acyclic, and each Parallel group's WUs have disjoint files with no dependency on each other (the parallel-safe flags are accurate).
 
-Returns a structured PASS / FAIL / WARN report. **After it returns**, persist any durable gotcha it found as a memory fact. **If any FAILs:** revise the plan and re-run Phase 1 (max 3 iterations). Don't proceed until it passes.
+Returns a structured PASS / FAIL / WARN report. **After it returns**, if a project memory store is present at `.claude/memory/`, persist any durable gotcha it found as a memory fact; otherwise skip. **If any FAILs:** revise the plan and re-run Phase 1 (max 3 iterations). Don't proceed until it passes.
 
 #### Phase 2: Adversarial Review
 
@@ -231,7 +248,7 @@ Returns a structured report. **After it returns**, record any rejected simpler a
 
 #### Phase 3: Test Review
 
-Spawn an **Explore** agent with the plan's Testing Strategy and the Phase 1-2 reports. It evaluates the proposed tests against the `engineering-standards` testing requirements:
+Spawn an **Explore** agent with the plan's Testing Strategy and the Phase 1 report (it runs in parallel with Phase 2, so it doesn't wait on the adversarial findings). It evaluates the proposed tests against the `engineering-standards` testing requirements:
 
 - Regression-pinning and boundary coverage.
 - Flakiness risks.
@@ -239,7 +256,7 @@ Spawn an **Explore** agent with the plan's Testing Strategy and the Phase 1-2 re
 - Mock quality (mock at the boundary; don't mock another service's tables).
 - Assertion strength.
 
-Returns a structured report. **After it returns**, persist any durable test-quality pattern as a memory fact. **If any FAILs:** revise the test plan and re-run Phase 3 (max 3 iterations).
+Returns a structured report. **After it returns**, if a project memory store is present at `.claude/memory/`, persist any durable test-quality pattern as a memory fact; otherwise skip. **If any FAILs:** revise the test plan and re-run Phase 3 (max 3 iterations).
 
 #### Quality Gate Result
 
@@ -283,7 +300,7 @@ grep -qxF '.claude/plans/' "$ROOT/.gitignore" 2>/dev/null || printf '.claude/pla
 Then:
 
 1. Save the plan to `.claude/plans/<topic-slug>.md` and the gate reports to `.claude/plans/<topic-slug>-quality.md`.
-2. Persist the plan's accepted key decisions as project memory facts (`type: project`, `anchors:` to the files they touch), update `MEMORY.md`, then refresh the graph with `/learn-project --graph-only`.
+2. If a project memory store is present at `.claude/memory/`, persist the plan's accepted key decisions as project memory facts (`type: project`, `anchors:` to the files they touch), update `MEMORY.md`, then refresh the graph with `/learn-project --graph-only`. Otherwise skip.
 3. Tell the user:
    - "Saved to `.claude/plans/<topic-slug>.md`"
    - "Implement it when ready: `/implement .claude/plans/<topic-slug>.md` (or the `superpowers:executing-plans` skill)."
