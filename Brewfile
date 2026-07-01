@@ -17,6 +17,9 @@ brew "rtk"          # CLI proxy that a PreToolUse hook routes every Bash command
 brew "gh"           # statusline PR and CI status (optional but recommended)
 brew "node"         # statusline shows the active Node version
 
+# Browser automation (optional): agent-browser MCP, used by /brainstorm for web-only tickets and attachments
+brew "agent-browser"  # register: claude mcp add --scope user agent-browser -- agent-browser mcp --tools core
+
 # zsh ships with macOS; the `cc` launcher is zsh-only. Uncomment to pin a Homebrew zsh.
 # brew "zsh"
 

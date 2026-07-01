@@ -81,13 +81,13 @@ Run this only when Argument Resolution found a ticket. Skip it entirely for a pl
 **Connect (layered).** Find a way to reach the tracker, in order:
 
 1. **MCP:** search for a connected ticket tool (`ToolSearch` for Jira, Linear, Atlassian, or issue tools). If one is connected, use it.
-2. **Provider command:** else look for a configured fetch command. Read `.claude/brainstorm.config` (or the repo's existing tracker config) for a per-tracker command with an `{id}` placeholder, for example `jira issue view {id} --raw` or `linear issue {id} --json`, and run it with Bash. A public tracker URL with no auth can be read with `WebFetch`.
+2. **Provider command:** else look for a configured fetch command. Read `.claude/brainstorm.config` (or the repo's existing tracker config) for a per-tracker command with an `{id}` placeholder, for example `jira issue view {id} --raw` or `linear issue {id} --json`, and run it with Bash. A public tracker URL with no auth can be read with `WebFetch`. A page that needs auth or JavaScript rendering that `WebFetch` can't handle can be opened with the `agent-browser` MCP, if it's connected: `open` the url, then `snapshot` for the accessibility tree and `screenshot` for visual content.
 3. **Neither:** stop and tell the user how to connect one (an MCP server or a provider command), then offer to continue with the ticket id as a plain-text seed. Do NOT fabricate ticket contents.
 
 **Crawl (bounded, never infinite).** Gather, then stop:
 
 - The ticket itself: title, description, status, and comments.
-- Attachments: read images visually and PDFs or docs as pages. Note and skip binaries and anything the tracker doesn't expose.
+- Attachments: read images visually and PDFs or docs as pages. For an attachment the tracker exposes only as a web link, open it with the `agent-browser` MCP (if connected) and `snapshot` or `screenshot` it. Note and skip binaries and anything the tracker doesn't expose.
 - One hop of direct links: linked issues, sub-tasks, parent epic, and linked PRs. `--depth` controls this (0 = ticket only, 1 = direct links (default), 2 = one more hop). Clamp `--depth` to the range 0 to 2, so the crawl is never unbounded.
 - Bounds: cap total related items at about 15, dedup visited tickets by id, and stop early when a hop adds nothing new.
 

@@ -12,6 +12,7 @@ My personal [Claude Code](https://docs.claude.com/en/docs/claude-code) setup: a 
 | `python3` 3.9+ | required | all hooks run in Python |
 | `rtk` (Rust Token Killer) | required | a PreToolUse hook routes every Bash command through it to cut token use |
 | `gh` | optional | statusline PR and CI status |
+| `agent-browser` | optional | browser automation MCP used by `/brainstorm` for web-only tickets and attachments |
 
 ## Install
 
