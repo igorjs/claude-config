@@ -18,7 +18,7 @@ Parse these from `$ARGUMENTS` and set the env vars before Step 1:
 - `--draft` → `DRAFT_FLAG=true` (open the PR as a draft)
 - `--base <branch>` → `BASE_ARG=<branch>` (override the base branch)
 - `--ticket <ID>` → `TICKET_ARG=<ID>` (force the ticket, skips branch auto-detect; pass `none` to omit the line)
-- `--yes` or `-y` → `AUTO_CREATE=true` (skip the final confirmation gate)
+- `--yes` or `-y` → `AUTO_CREATE=true` (run end to end with no prompts: skip the final confirmation gate, downgrade every Step 2 readiness ask to a printed warning, and omit an undetected ticket instead of asking)
 - `--help` → print the usage block above and stop
 
 No flags means: auto-detect base and ticket, then ask for confirmation before pushing and creating.
@@ -99,13 +99,13 @@ echo "commits_ahead=$AHEAD changed_lines=${CHANGED:-0} dirty_files=$DIRTY test_f
 
 Evaluate against `engineering-standards`, then decide:
 
-- **`AHEAD` = 0** → abort. There is nothing to open a PR for.
-- **`DIRTY` > 0** → warn: those changes are uncommitted and won't be in the PR. Ask whether to proceed, commit first (`/commit-and-push`), or stop.
-- **`CHANGED` > 1000** → this exceeds the hard size limit. Ask the user to justify or split before continuing.
-- **`CHANGED` > 500** → note it is above the soft limit; suggest splitting, but continue if they accept.
-- **`TESTS` = 0** → note the diff adds no tests. Confirm this is intentional (docs, config, pure refactor) before continuing; the readiness criteria expect tests for behaviour changes.
+- **`AHEAD` = 0** → abort. There is nothing to open a PR for. This is a hard error, not a prompt; `AUTO_CREATE` does not override it.
+- **`DIRTY` > 0** → warn: those changes are uncommitted and won't be in the PR. With `AUTO_CREATE`, print the warning and continue; otherwise ask whether to proceed, commit first (`/commit-and-push`), or stop.
+- **`CHANGED` > 1000** → exceeds the hard size limit. With `AUTO_CREATE`, print a prominent warning that it is over the limit and continue; otherwise ask the user to justify or split before continuing.
+- **`CHANGED` > 500** → note it is above the soft limit and continue; suggest splitting when interactive.
+- **`TESTS` = 0** → note the diff adds no tests. With `AUTO_CREATE`, print the note and continue; otherwise confirm this is intentional (docs, config, pure refactor) before continuing; the readiness criteria expect tests for behaviour changes.
 
-Report the readiness picture in one short block, then continue.
+Report the readiness picture in one short block, then continue. With `AUTO_CREATE`, none of the above pause for input; they print and move on.
 
 ## Step 3: Gather the diff and commit history
 
@@ -133,7 +133,7 @@ echo "TICKET=${TICKET:-<none>}"
 ```
 
 - If `TICKET` is a real ID (not empty, not `none`) → include `Ticket: <ID>` as the first line of the body.
-- If empty → the branch has no ticket. Ask the user once for a ticket ID; if they don't have one, omit the line entirely.
+- If empty → the branch has no ticket. With `AUTO_CREATE`, omit the line without asking; otherwise ask the user once for a ticket ID, and omit the line entirely if they don't have one.
 - If `none` → omit the line, don't ask.
 
 ## Step 5: Generate the title (conventional commits)
@@ -190,7 +190,7 @@ echo "Body written: $LIAM_TMP/pr-body.md"
 
 ## Step 7: Confirm
 
-Unless `AUTO_CREATE=true`, show the user the resolved title, the rendered body, base branch, and draft flag. Ask for confirmation or edits. Apply edits to `$LIAM_TMP/pr-body.md` before continuing.
+When `AUTO_CREATE=true`, skip this gate and go straight to Step 8. Otherwise show the user the resolved title, the rendered body, base branch, and draft flag, ask for confirmation or edits, and apply edits to `$LIAM_TMP/pr-body.md` before continuing.
 
 ## Step 8: Push and create
 
